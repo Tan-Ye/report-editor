@@ -1,13 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Trash2 } from "lucide-react";
+import { THEME_COLORS } from "@/base/colors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { applyAlpha } from "@/lib/fill";
 import { importImageFill } from "@/lib/media";
-import type { FillSpec, GradientStop, ImageFit } from "@/store";
+import { rememberColor } from "@/lib/ui-preferences";
+import { cn } from "@/lib/utils";
+import { preferenceStore, type FillSpec, type GradientStop, type ImageFit } from "@/store";
 import { AngleDial } from "./angle-dial";
 import { NumberField } from "./number-field";
+
+/** 订阅函数放模块级：引用稳定，避免每次渲染重新订阅 */
+const subscribeRecent = (onStoreChange: () => void) => preferenceStore.subscribe(onStoreChange);
+const getRecentSnapshot = () => preferenceStore.getSnapshot();
 
 /** 第二次参数 commit=false 表示「只是在预览」，不要记历史 */
 type FillChange = (fill: FillSpec, options?: { commit?: boolean }) => void;
@@ -118,10 +125,12 @@ function ColorInput({
 	value,
 	disabled,
 	onCommit,
+	onFocus,
 }: {
 	value: string;
 	disabled?: boolean;
 	onCommit: (color: string) => void;
+	onFocus?: () => void;
 }) {
 	const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -147,8 +156,46 @@ function ColorInput({
 			disabled={disabled}
 			key={value}
 			defaultValue={value}
+			onFocus={onFocus}
 			className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5 disabled:pointer-events-none disabled:opacity-50"
 		/>
+	);
+}
+
+/** 一排色块：主题色 / 最近使用 */
+function SwatchRow({
+	title,
+	colors,
+	disabled,
+	onPick,
+}: {
+	title: string;
+	colors: readonly string[];
+	disabled?: boolean;
+	onPick: (color: string) => void;
+}) {
+	if (colors.length === 0) {
+		return null;
+	}
+	return (
+		<div className="flex flex-col gap-1">
+			<span className="text-xs text-muted-foreground">{title}</span>
+			<div className="grid grid-cols-6 gap-1">
+				{colors.map((color) => (
+					<button
+						key={color}
+						type="button"
+						title={color}
+						aria-label={`使用颜色 ${color}`}
+						disabled={disabled}
+						onClick={() => onPick(color)}
+						className="size-6 rounded-md border border-border transition-transform hover:scale-105 disabled:pointer-events-none disabled:opacity-50"
+						// 动态值：色板自身的颜色
+						style={{ background: color }}
+					/>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -201,12 +248,17 @@ function StopRow({
 	stop,
 	disabled,
 	canRemove,
+	active,
+	onActivate,
 	onChange,
 	onRemove,
 }: {
 	stop: GradientStop;
 	disabled?: boolean;
 	canRemove: boolean;
+	/** 是否是「当前编辑的色标」：色板点击会作用在它身上 */
+	active?: boolean;
+	onActivate?: () => void;
 	onChange: (stop: GradientStop, commit: boolean) => void;
 	onRemove: () => void;
 }) {
@@ -223,10 +275,17 @@ function StopRow({
 	};
 
 	return (
-		<div className="flex items-center gap-1">
+		<div
+			onClick={onActivate}
+			className={cn(
+				"flex items-center gap-1 rounded-md",
+				active && "ring-1 ring-primary/40",
+			)}
+		>
 			<ColorInput
 				value={toHexColor(stop.color)}
 				disabled={disabled}
+				onFocus={onActivate}
 				onCommit={(color) => onChange({ ...stop, color }, true)}
 			/>
 			<Input
@@ -306,10 +365,14 @@ function FillPanel({
 	const [solid, setSolid] = useState(initialSolid);
 	const [gradient, setGradient] = useState<GradientFill>(initialGradient);
 	const [importing, setImporting] = useState(false);
+	/** 色板点击作用在哪个色标上（渐变模式） */
+	const [activeStop, setActiveStop] = useState(0);
+	const recents = useSyncExternalStore(subscribeRecent, getRecentSnapshot).recentColors;
 
 	const emitSolid = (color: string) => {
 		setTab("solid");
 		setSolid(color);
+		rememberColor(color);
 		onChange({ kind: "solid", color }, { commit: true });
 	};
 
@@ -318,6 +381,20 @@ function FillPanel({
 		const merged: GradientFill = { ...gradient, ...next };
 		setGradient(merged);
 		onChange(merged, { commit });
+	};
+
+	/** 点色板：纯色模式改整体颜色，渐变模式改当前选中的那个色标 */
+	const applySwatch = (color: string) => {
+		rememberColor(color);
+		if (tab === "gradient") {
+			// 色标可能被删过，索引要夹一下
+			const index = Math.min(activeStop, gradient.stops.length - 1);
+			emitGradient({
+				stops: gradient.stops.map((stop, i) => (i === index ? { ...stop, color } : stop)),
+			});
+			return;
+		}
+		emitSolid(color);
 	};
 
 	const emitImageFit = (fit: ImageFit) => {
@@ -341,6 +418,7 @@ function FillPanel({
 	};
 
 	const updateStop = (index: number, next: GradientStop, commit: boolean) => {
+		rememberColor(next.color);
 		emitGradient(
 			{ stops: gradient.stops.map((stop, i) => (i === index ? next : stop)) },
 			commit,
@@ -503,6 +581,8 @@ function FillPanel({
 								stop={stop}
 								disabled={disabled}
 								canRemove={gradient.stops.length > 2}
+								active={index === activeStop}
+								onActivate={() => setActiveStop(index)}
 								onChange={(next, commit) => updateStop(index, next, commit)}
 								onRemove={() => removeStop(index)}
 							/>
@@ -526,6 +606,23 @@ function FillPanel({
 						style={{ background: paintCss(gradient) }}
 					/>
 				</div>
+			)}
+
+			{tab !== "image" && (
+				<>
+					<SwatchRow
+						title="主题色"
+						colors={THEME_COLORS}
+						disabled={disabled}
+						onPick={applySwatch}
+					/>
+					<SwatchRow
+						title="最近使用"
+						colors={recents}
+						disabled={disabled}
+						onPick={applySwatch}
+					/>
+				</>
 			)}
 		</div>
 	);

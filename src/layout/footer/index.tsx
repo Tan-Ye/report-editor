@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MAX_SCALE, MIN_SCALE, zoomStore } from "@/store";
+import { AboutDialog } from "./about-dialog";
 
 /**
  * 底部状态栏：右侧是画布缩放控制。
@@ -14,6 +15,9 @@ export function Footer() {
 
 	return (
 		<footer className="flex h-8 shrink-0 items-center justify-end gap-0.5 border-t border-border bg-chrome px-3 text-xs text-muted-foreground">
+			<div className="mr-auto flex items-center">
+				<AboutDialog />
+			</div>
 			<Button
 				type="button"
 				variant="ghost"

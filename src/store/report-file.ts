@@ -3,7 +3,7 @@ import { TEXT_ELEMENT_TYPE, UNIT_SIZE } from "@/base/elements";
 import { createUniqueId } from "@/lib/utils";
 import type { ElementAttrs, ElementInfo } from "./element";
 import { normalizeFill } from "./fill";
-import { createPage, pageStore, type PageInfo, type PageStyle } from "./page";
+import { createPage, pageStore, type PageGuide, type PageInfo, type PageStyle } from "./page";
 import { reportStore } from "./report";
 import { REPORT_FILE_VERSION, type ReportFile } from "./schema";
 
@@ -110,6 +110,29 @@ function parsePageStyle(raw: unknown, legacyBackground: unknown): PageStyle | un
 	return fill ? { fill } : undefined;
 }
 
+/** 参考线只接受 { axis: "x"|"y", position: number }，其余丢弃 */
+function parseGuides(raw: unknown): PageGuide[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const guides: PageGuide[] = [];
+	for (const item of raw) {
+		if (!isRecord(item)) {
+			continue;
+		}
+		const axis = item.axis === "x" || item.axis === "y" ? item.axis : null;
+		const position =
+			typeof item.position === "number" && Number.isFinite(item.position)
+				? item.position
+				: null;
+		if (!axis || position === null) {
+			continue;
+		}
+		guides.push({ axis, position });
+	}
+	return guides;
+}
+
 function parsePage(raw: unknown, warnings: string[]): PageInfo {
 	if (!isRecord(raw)) {
 		warnings.push("跳过一条非法页面记录");
@@ -131,8 +154,9 @@ function parsePage(raw: unknown, warnings: string[]): PageInfo {
 		.filter((item): item is ElementInfo => item !== null);
 
 	const style = parsePageStyle(raw.style, raw.background);
+	const guides = parseGuides(raw.guides);
 
-	return { pageId, pageName, elements, style };
+	return { pageId, pageName, elements, style, ...(guides.length > 0 ? { guides } : {}) };
 }
 
 /**

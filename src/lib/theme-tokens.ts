@@ -60,3 +60,12 @@ export function getReportPalette(): ReportPalette {
 export function refreshReportPalette(): void {
 	cached = null;
 }
+
+/**
+ * 读任意 CSS 变量的计算值。
+ * 给 canvas 绘制用 —— 刻度条这类画在 canvas 上的 UI 同样读不到 CSS 变量，
+ * 只能先把变量解析成字面量颜色。
+ */
+export function getCssColor(name: string, fallback: string): string {
+	return readToken(name, fallback);
+}

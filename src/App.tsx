@@ -2,7 +2,15 @@ import "./App.css";
 import "./global.css";
 
 import { Toaster } from "@/components/ui/toast";
-import { useDraftAutosave, useHistoryShortcuts, useRestoreReport, useSaveShortcut } from "@/hooks";
+import { CloseConfirmDialog } from "@/components/app/close-confirm-dialog";
+import {
+	useCloseGuard,
+	useDraftAutosave,
+	useHistoryShortcuts,
+	useRestoreReport,
+	useSaveShortcut,
+	useUiPreferences,
+} from "@/hooks";
 import { Container } from "@/layout";
 
 function App() {
@@ -13,12 +21,22 @@ function App() {
   useDraftAutosave();
   // 启动时恢复上一次的报告（没有才新建）
   useRestoreReport();
+  // 本地 UI 偏好：最近使用色这类不进文档的习惯
+  useUiPreferences();
+  // 关窗拦截：有未保存内容时先问一句
+  const closeGuard = useCloseGuard();
 
   return (
     <Toaster>
       <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground antialiased">
         <Container />
       </main>
+      <CloseConfirmDialog
+        open={closeGuard.asking}
+        onSave={() => void closeGuard.closeAfterSave()}
+        onDiscard={() => void closeGuard.closeWithoutSaving()}
+        onCancel={closeGuard.cancelClose}
+      />
     </Toaster>
   );
 }

@@ -129,6 +129,39 @@ export function mediaDirOf(area: ReportArea, reportName: string, reportId: strin
 }
 
 /**
+ * 删除 media 里没有被引用的文件。
+ *
+ * 保存后调用：导入的图片按内容 hash 命名，用户换图之后旧文件就没人引用了，
+ * 不清理的话报告目录会一直变胖。尽力而为 —— 删不掉不该让保存失败。
+ */
+export async function removeUnreferencedMedia(
+	area: ReportArea,
+	folder: string,
+	referenced: Set<string>,
+): Promise<void> {
+	const dir = `${area}/${folder}/${REPORT_MEDIA_DIR}`;
+	if (!(await exists(dir, { baseDir: BASE_DIR }))) {
+		return;
+	}
+	let entries;
+	try {
+		entries = await readDir(dir, { baseDir: BASE_DIR });
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (!entry.isFile || referenced.has(entry.name)) {
+			continue;
+		}
+		try {
+			await remove(`${dir}/${entry.name}`, { baseDir: BASE_DIR });
+		} catch {
+			// 占用/权限问题跳过即可
+		}
+	}
+}
+
+/**
  * 把一组媒体文件从草稿目录复制到已保存目录。
  *
  * 草稿阶段的图片存在 cache，保存后 cache 目录会被清掉；

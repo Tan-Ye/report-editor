@@ -4,7 +4,7 @@ import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base/index";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { computeViewportFit } from "@/lib/utils";
-import { zoomStore } from "@/store";
+import { viewportStore, zoomStore } from "@/store";
 
 /** 画布句柄：画布与白页都在挂载之后才有值 */
 export interface CanvasHandle {
@@ -109,14 +109,11 @@ export function useCanvas(): CanvasHandle {
 				panOffsetRef.current = { x: 0, y: 0 };
 			}
 			const offset = panOffsetRef.current;
-			fabricCanvas.setViewportTransform([
-				scale,
-				0,
-				0,
-				scale,
-				rect.width / 2 - (baseWidth * scale) / 2 + offset.x,
-				rect.height / 2 - (baseHeight * scale) / 2 + offset.y,
-			]);
+			const tx = rect.width / 2 - (baseWidth * scale) / 2 + offset.x;
+			const ty = rect.height / 2 - (baseHeight * scale) / 2 + offset.y;
+			fabricCanvas.setViewportTransform([scale, 0, 0, scale, tx, ty]);
+			// 镜像一份给覆盖层（刻度/参考线），它们读不到画布内部的变换
+			viewportStore.set({ scale, tx, ty, width: rect.width, height: rect.height });
 			fabricCanvas.requestRenderAll();
 		};
 
@@ -200,6 +197,15 @@ export function useCanvas(): CanvasHandle {
 			};
 			// setViewportTransform 内部会重算可视边界并请求重绘
 			canvas.setViewportTransform(viewport);
+			// 平移也要同步给覆盖层，否则刻度和参考线会留在原地
+			const rect = containerRef.current?.getBoundingClientRect();
+			viewportStore.set({
+				scale: viewport[0],
+				tx: viewport[4],
+				ty: viewport[5],
+				width: rect?.width ?? 0,
+				height: rect?.height ?? 0,
+			});
 		},
 		[canvas],
 	);

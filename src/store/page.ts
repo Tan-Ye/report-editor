@@ -8,6 +8,17 @@ export interface PageStyle {
 	fill?: FillSpec;
 }
 
+/**
+ * 参考线。
+ * 存在页面上而不是报告层：撤销快照只捕获 pages，放这里天然能撤销、能算脏。
+ */
+export interface PageGuide {
+	/** x = 竖直参考线（固定横坐标）；y = 水平参考线（固定纵坐标） */
+	axis: "x" | "y";
+	/** 场景坐标（页面单位）。创建和拖动时都按 10 取整，避免出现零碎位置 */
+	position: number;
+}
+
 export interface PageInfo {
 	pageId: string;
 	pageName: string;
@@ -17,6 +28,8 @@ export interface PageInfo {
 	 * 背景不是页面里的元素 —— 它永远铺在最底层，不参与选中/层级/对齐。
 	 */
 	style?: PageStyle;
+	/** 参考线。和元素一样存在页面里，随文件保存 */
+	guides?: PageGuide[];
 }
 
 export interface PagesState {
@@ -232,6 +245,12 @@ class PageStore {
 	/** 元素集合的唯一写入口：统一改成不可变更新，避免多处直接改数组 */
 	private setElementsOfCurrentPage(elements: ElementInfo[]) {
 		this.updateCurrentPage({ ...this.currentPage, elements });
+	}
+
+	/** 参考线变了要通知订阅方（覆盖层要重画），但不触发画布重载 */
+	setCurrentPageGuides(guides: PageGuide[]) {
+		this.updateCurrentPage({ ...this.currentPage, guides });
+		this.emit();
 	}
 }
 
