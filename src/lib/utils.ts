@@ -1,47 +1,69 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { baseWidth, baseHeight, baseRatio, bgCanvasWidth, bgCanvasHeight } from "../base/index";
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
-interface computeCanvasPositionArgs {
+/**
+ * 生成唯一 id。优先用 crypto.randomUUID，环境不支持时退回「前缀-时间戳-随机串」。
+ * 页面、报告、元素都要用它，保证写进文件的 id 不重复。
+ */
+export function createUniqueId(prefix: string): string {
+	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+		return crypto.randomUUID();
+	}
+	return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+interface ComputeViewportFitArgs {
 	containerRect: DOMRect;
+	/** 页面基准尺寸，页面在场景中的左上角是 (0, 0) */
+	pageWidth: number;
+	pageHeight: number;
+	/** 单值表示四边等距；数组按 [上, 右, 下, 左] 顺序 */
 	padding?: number | number[];
 }
 
-type CanvasInfo = {
-	left: number;
-	top: number;
-	width: number;
-	height: number;
-	scale: number;
+export interface ViewportFit {
+	/** 视口缩放比例 */
+	zoom: number;
+	/** 页面左上角映射到的画布坐标 */
+	offsetX: number;
+	offsetY: number;
+}
+
+const normalizePadding = (padding: number | number[]): [number, number, number, number] => {
+	if (Array.isArray(padding)) {
+		const [top = 0, right = 0, bottom = 0, left = 0] = padding;
+		return [top, right, bottom, left];
+	}
+	return [padding, padding, padding, padding];
 };
 
-/** 计算画布区域在容器中的位置与大小，画布区域固定为 1920*1080，在容器中保持比例展示 */
-export function computeCanvasPositionAndSize({ containerRect, padding = 20 }: computeCanvasPositionArgs): CanvasInfo {
-	const { width, height } = containerRect;
-	let paddingTop = 0;
-	let paddingRight = 0;
-	let paddingBottom = 0;
-	let paddingLeft = 0;
-	if (Array.isArray(padding)) {
-		[paddingTop, paddingRight, paddingBottom, paddingLeft] = padding;
-	} else {
-		paddingTop = paddingRight = paddingBottom = paddingLeft = padding;
-	}
+/**
+ * 计算「让页面适配画布」的视口变换。
+ *
+ * 缩放只作用在视口上，页面对象本身保持原始尺寸 ——
+ * 这样元素坐标（场景坐标）与窗口大小完全无关，缩放、改窗口都不会让元素和白页错位。
+ * 画布尺寸等于可视区，所以场景里的页面是居中摆放的，留出的边距就是可以放页面外元素的区域。
+ */
+export function computeViewportFit({
+	containerRect,
+	pageWidth,
+	pageHeight,
+	padding = 48,
+}: ComputeViewportFitArgs): ViewportFit {
+	const [paddingTop, paddingRight, paddingBottom, paddingLeft] = normalizePadding(padding);
+	const availableWidth = Math.max(containerRect.width - paddingLeft - paddingRight, 1);
+	const availableHeight = Math.max(containerRect.height - paddingTop - paddingBottom, 1);
 
-	const canvasPosition: CanvasInfo = {
-		top: bgCanvasHeight / 2,
-		left: bgCanvasWidth / 2,
-		width: baseWidth,
-		height: baseHeight,
-		// width: 100,
-		// height: 100,
-		// scale: 1,
-	} as CanvasInfo;
-	const adaptWidth = Math.floor(width - paddingLeft - paddingRight);
-	canvasPosition.scale = adaptWidth / baseWidth;
-	return canvasPosition;
+	// 页面比可视区大就缩小，比可视区小就放大；给个下限避免容器塌成 0 时缩放算出 0
+	const zoom = Math.max(Math.min(availableWidth / pageWidth, availableHeight / pageHeight), 0.05);
+
+	return {
+		zoom,
+		offsetX: (containerRect.width - pageWidth * zoom) / 2,
+		offsetY: (containerRect.height - pageHeight * zoom) / 2,
+	};
 }

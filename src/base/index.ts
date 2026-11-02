@@ -1,8 +1,6 @@
-// 画布基本大小
+/** 报告页面基准尺寸，也是场景坐标的单位：页面左上角为场景原点 (0, 0) */
 export const baseWidth = 1920;
 export const baseHeight = 1080;
-export const baseRatio = baseWidth / baseHeight;
 
-// 背景范围画布大小
-export const bgCanvasWidth = 3000;
-export const bgCanvasHeight = 3000;
+/** 页面宽高比，导出/预览时按比例换算用 */
+export const baseRatio = baseWidth / baseHeight;

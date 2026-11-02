@@ -1,77 +1,46 @@
-import { useEffect, useRef } from "react";
-import * as fabric from "fabric";
-import { useSize } from "ahooks";
-import { bgCanvasWidth, bgCanvasHeight } from "@/base/index";
-import { computeCanvasPositionAndSize } from "@/lib/utils";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { ElementContextMenu } from "./element-context-menu";
+import { useCanvas, useCanvasTeardown } from "./use-canvas";
+import { useContextMenu } from "./use-context-menu";
+import { useDrawing } from "./use-drawing";
+import { usePage } from "./use-page";
+import { useSelection } from "./use-selection";
+import { useTextEditing } from "./use-text-editing";
 
 export function DrawArea() {
-  const boardContainer = useRef<HTMLDivElement>(null)
-  // const containerSize = useSize(boardContainer)
+	// 画布与白页只在这里创建一次；其它 hook 都等 canvas 就绪后再接管
+	const { canvas, page, containerRef: boardContainer, stageRef, teardown } = useCanvas();
 
-  const bgCanvasRef = useRef<fabric.Canvas>(null)
-  // console.log('containerSize', containerSize);
-  useEffect(() => {
-    // 初始化画布
-    // 背景与范围的画布初始化
-    if (bgCanvasRef.current || !boardContainer.current) {
-      return
-    }
-    console.log('111111111111', boardContainer.current);
+	// 依赖关系按「画布 → 选中 → 文本 → 绘制 → 右键菜单 → 页面」串起来，
+	// 跨 hook 的回调一律走参数，避免互相 import 造成循环依赖
+	const { syncSelection } = useSelection(canvas);
+	const { placeTextElement } = useTextEditing(canvas, syncSelection);
+	const { cancelDrag } = useDrawing(canvas, placeTextElement);
+	const contextMenu = useContextMenu(canvas);
+	usePage(canvas, page, cancelDrag);
+	// 必须最后调用：React 按 hook 定义顺序执行清理，这样其它 hook 先摘掉监听、
+	// 结束绘制，最后才 dispose 画布
+	useCanvasTeardown(teardown);
 
-    const containerRect = boardContainer.current.getBoundingClientRect()
-    // 创建 canvas，但不指定元素，让 fabric 自己创建
-    const canvas = new fabric.Canvas(undefined, {
-      width: bgCanvasWidth,
-      height: bgCanvasHeight,
-      backgroundColor: 'gray',
-    })
-
-    bgCanvasRef.current = canvas
-
-    // 获取 fabric 创建的 wrapper
-    const wrapper = canvas.wrapperEl
-    if (wrapper && boardContainer.current) {
-      // 清空容器并添加 wrapper
-      boardContainer.current.innerHTML = ''
-      boardContainer.current.appendChild(wrapper)
-      
-      // 设置 wrapper 样式
-      Object.assign(wrapper.style, {
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: `${bgCanvasWidth}px`,
-        height: `${bgCanvasHeight}px`,
-      })
-    }
-    const canvasPosition = computeCanvasPositionAndSize({containerRect})
-    console.log('containerRect width height',containerRect, canvasPosition);
-    const bgRect = new fabric.Rect({
-      ...canvasPosition,
-      // scale: 0,
-      // left:0,
-      // top:0,
-      scaleX: canvasPosition.scale,
-      scaleY: canvasPosition.scale,
-      // scaleX: 0.5,
-      // scaleY: 1,
-      fill: 'white',
-      draggable: false,
-      lockMovement: true,
-      selectable: false,
-      moveCursor: 'default',
-      rotateCursor: 'default',
-      scaleCursor: 'default',
-      hoverCursor: 'default',
-    });
-    bgCanvasRef.current.add(bgRect);
-    return () => {
-      bgCanvasRef.current = null
-    }
-  }, [])
-
-  return (
-    <div className="w-full h-full flex items-center justify-center bg-background border-border relative flex-1 overflow-hidden" ref={boardContainer} />
-  );
+	return (
+		<ContextMenu>
+			{/*
+				布局类名写在 Trigger 上而不是 render 的 div 上：
+				组件会把 className 合并进被渲染的元素，写在这里不会被覆盖掉
+			*/}
+			<ContextMenuTrigger
+				className="canvas-grid relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-workspace"
+				render={
+					// 类名在 Trigger 和这里各写一遍：两份都生效也无害，避免组件只认其中一处
+					<div
+						ref={boardContainer}
+						className="canvas-grid relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-workspace"
+					>
+						<div ref={stageRef} className="absolute inset-0" />
+					</div>
+				}
+			/>
+			<ElementContextMenu state={contextMenu} />
+		</ContextMenu>
+	);
 }

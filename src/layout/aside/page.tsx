@@ -1,12 +1,70 @@
-export function Page() {
+import { Trash2 } from "lucide-react";
+import { baseHeight, baseWidth } from "@/base";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+interface PageItemProps {
+  index: number;
+  name: string;
+  active: boolean;
+  /** 只剩一页时不允许删除 */
+  canDelete: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}
+
+/**
+ * 单个页面条目：16:9 缩略图 + 页码角标 + 名称/尺寸。
+ * 外层用 div 而不是 button —— 删除按钮要放在里面，button 不能嵌套 button。
+ */
+export function PageItem({ index, name, active, canDelete, onSelect, onDelete }: PageItemProps) {
   return (
-    <div className="w-full flex flex-col items-center gap-2">
-      {/* page preview */}
-      <div className="w-48 h-48 bg-background border-2 border-border"></div>
-      {/* title */}
-      <div className="text-center text-sm font-medium text-foreground">
-        Page 1
-      </div>
+    <div className="group relative">
+      <button
+        type="button"
+        aria-current={active ? "page" : undefined}
+        onClick={onSelect}
+        className={cn(
+          "flex w-full flex-col gap-1.5 rounded-lg p-1.5 text-left transition-colors",
+          active ? "bg-accent" : "hover:bg-accent/60",
+        )}
+      >
+        <div
+          className={cn(
+            "relative aspect-video w-full overflow-hidden rounded-md border bg-white transition-shadow",
+            active
+              ? "border-primary/50 shadow-sm ring-2 ring-primary/25"
+              : "border-border/80 group-hover:border-border",
+          )}
+        >
+          <span className="absolute left-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-foreground/85 px-1 text-xs font-medium leading-none tabular-nums text-background">
+            {index + 1}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-0.5">
+          <span className="truncate text-xs font-medium text-foreground">
+            {name || `第 ${index + 1} 页`}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {baseWidth}×{baseHeight}
+          </span>
+        </div>
+      </button>
+
+      {canDelete && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`删除第 ${index + 1} 页`}
+          title="删除页面"
+          onClick={onDelete}
+          className="absolute right-2 top-2 bg-background/90 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2 className="size-3" />
+        </Button>
+      )}
     </div>
   );
 }
