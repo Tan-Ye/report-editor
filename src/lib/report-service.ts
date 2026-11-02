@@ -17,6 +17,7 @@ import {
 	ensureArea,
 	ensureReportFolder,
 	getAbsolutePath,
+	getAppDataRoot,
 	getFolderJsonPath,
 	getReportUpdatedAt,
 	listReportFolders,
@@ -32,6 +33,8 @@ export interface ReportSummary {
 	reportId: string;
 	reportName: string;
 	folder: string;
+	/** 这份报告所在的数据目录（绝对路径） */
+	root: string;
 	updatedAt: number | null;
 }
 
@@ -40,15 +43,39 @@ const SAVED_AREA: ReportArea = "data";
 const DRAFT_AREA: ReportArea = "cache";
 
 /**
- * 当前报告在应用数据目录下的相对路径（`data/xxx` 或 `cache/xxx`）。
- * 导入媒体文件时要用它决定放到哪个报告目录里。
+ * 当前报告所在的存储根（绝对路径）。
+ *
+ * 现在固定是内置数据目录；接上「自定义数据目录」之后，
+ * 这里会改成「这份报告所在的目录」或「默认目录」，调用方不用动。
  */
-export async function getCurrentReportDir(): Promise<string> {
+async function getStorageRoot(): Promise<string> {
+	return getAppDataRoot();
+}
+
+/**
+ * 当前报告所在存储根的绝对路径。
+ * 已落盘的报告用它的目录；还没保存过的新报告用默认目录。
+ */
+export async function getCurrentReportRoot(): Promise<string> {
+	return reportStore.rootPath ?? (await getStorageRoot());
+}
+
+/** 当前报告相对存储根的目录（`data/xxx` 或 `cache/xxx`） */
+export async function getCurrentReportRelativeDir(): Promise<string> {
 	const { reportName, reportId } = reportStore.state;
+	const root = await getCurrentReportRoot();
 	const area: ReportArea = saveStateStore.getState().persisted ? SAVED_AREA : DRAFT_AREA;
 	const folder =
-		(await findReportFolder(area, reportId)) ?? getReportFolderName(reportName, reportId);
+		(await findReportFolder(root, area, reportId)) ?? getReportFolderName(reportName, reportId);
 	return `${area}/${folder}`;
+}
+
+/**
+ * 当前报告在磁盘上的**绝对目录**。
+ * 导入媒体文件、读图片都基于它。
+ */
+export async function getCurrentReportDir(): Promise<string> {
+	return getAbsolutePath(await getCurrentReportRoot(), await getCurrentReportRelativeDir());
 }
 
 /**
@@ -108,27 +135,36 @@ export async function saveReport(): Promise<void> {
 	const revision = saveStateStore.beginSave();
 
 	try {
-		await ensureArea(SAVED_AREA);
+		const root = await getStorageRoot();
+		await ensureArea(root, SAVED_AREA);
 		// 已经有目录就写在原目录里：改名后统一在写完之后 relocate，
 		// 否则会先建出一个新名字的目录、再把旧目录改名失败，最后留下两份
 		const folder =
-			(await findReportFolder(SAVED_AREA, reportId)) ??
+			(await findReportFolder(root, SAVED_AREA, reportId)) ??
 			getReportFolderName(reportName, reportId);
-		await ensureReportFolder(SAVED_AREA, folder);
+		await ensureReportFolder(root, SAVED_AREA, folder);
 		// 草稿阶段的图片存在 cache，保存后 cache 目录会被清掉，先把媒体文件搬过来
-		const draftFolder = await findReportFolder(DRAFT_AREA, reportId);
+		const draftFolder = await findReportFolder(root, DRAFT_AREA, reportId);
 		if (draftFolder) {
 			await copyMediaDir(
+				root,
 				`${DRAFT_AREA}/${draftFolder}/media`,
 				`${SAVED_AREA}/${folder}/media`,
 			);
 		}
-		await writeJsonAtomically(getFolderJsonPath(SAVED_AREA, folder), json);
-		await relocateFolderToMatchName(folder, reportName, reportId);
+		await writeJsonAtomically(root, getFolderJsonPath(SAVED_AREA, folder), json);
+		await relocateFolderToMatchName(root, folder, reportName, reportId);
 		// 清理不再被引用的媒体文件（目录可能刚被改名，重新定位一次）
-		const finalFolder = (await findReportFolder(SAVED_AREA, reportId)) ?? folder;
-		await removeUnreferencedMedia(SAVED_AREA, finalFolder, collectMediaReferences(file));
-		await removeDraftFolder(reportId);
+		const finalFolder = (await findReportFolder(root, SAVED_AREA, reportId)) ?? folder;
+		await removeUnreferencedMedia(
+			root,
+			SAVED_AREA,
+			finalFolder,
+			collectMediaReferences(file),
+		);
+		await removeDraftFolder(root, reportId);
+		// 记下这份报告落在哪个目录：新建的报告第一次保存后才算有了归属
+		reportStore.setRootPath(root);
 		saveStateStore.endSave(revision);
 		toast.add({ title: "保存成功", type: "success" });
 	} catch (error) {
@@ -156,13 +192,14 @@ export async function saveDraft(): Promise<void> {
 	const { reportName, reportId } = reportStore.state;
 	const json = captureDocumentJson();
 	try {
-		await ensureArea(DRAFT_AREA);
+		const root = await getStorageRoot();
+		await ensureArea(root, DRAFT_AREA);
 		// 同样按 id 复用已有草稿目录，改名不会攒出多个
 		const folder =
-			(await findReportFolder(DRAFT_AREA, reportId)) ??
+			(await findReportFolder(root, DRAFT_AREA, reportId)) ??
 			getReportFolderName(reportName, reportId);
-		await ensureReportFolder(DRAFT_AREA, folder);
-		await writeJsonAtomically(getFolderJsonPath(DRAFT_AREA, folder), json);
+		await ensureReportFolder(root, DRAFT_AREA, folder);
+		await writeJsonAtomically(root, getFolderJsonPath(DRAFT_AREA, folder), json);
 	} catch {
 		// 草稿写失败不打扰用户，下次改动会再试
 	}
@@ -174,6 +211,7 @@ export async function saveDraft(): Promise<void> {
  * 所以改名失败也不影响打开，下次保存会再试。
  */
 async function relocateFolderToMatchName(
+	root: string,
 	folder: string,
 	reportName: string,
 	reportId: string,
@@ -183,18 +221,24 @@ async function relocateFolderToMatchName(
 		return;
 	}
 	try {
-		await renameReportDir(folder, desired);
+		await renameReportDir(root, folder, desired);
 	} catch {
 		// 目标已存在或被占用：保留旧目录名
 	}
 }
 
 /** 按 reportId 找出报告实际所在的目录 */
-async function findReportFolder(area: ReportArea, reportId: string): Promise<string | null> {
-	const folders = await listReportFolders(area);
+async function findReportFolder(
+	root: string,
+	area: ReportArea,
+	reportId: string,
+): Promise<string | null> {
+	const folders = await listReportFolders(root, area);
 	for (const folder of folders) {
 		try {
-			const parsed = JSON.parse(await readReportJson(area, folder)) as { reportId?: unknown };
+			const parsed = JSON.parse(await readReportJson(root, area, folder)) as {
+				reportId?: unknown;
+			};
 			if (parsed.reportId === reportId) {
 				return folder;
 			}
@@ -206,22 +250,23 @@ async function findReportFolder(area: ReportArea, reportId: string): Promise<str
 }
 
 /** 保存成功后清掉这份报告遗留的草稿目录 */
-async function removeDraftFolder(reportId: string): Promise<void> {
-	const folder = await findReportFolder(DRAFT_AREA, reportId);
+async function removeDraftFolder(root: string, reportId: string): Promise<void> {
+	const folder = await findReportFolder(root, DRAFT_AREA, reportId);
 	if (folder) {
-		await removeReportDir(DRAFT_AREA, folder);
+		await removeReportDir(root, DRAFT_AREA, folder);
 	}
 }
 
 /** 列出已保存的报告，按最后修改时间倒序 */
-export async function listSavedReports(): Promise<ReportSummary[]> {
-	await ensureArea(SAVED_AREA);
-	const folders = await listReportFolders(SAVED_AREA);
+export async function listSavedReports(root?: string): Promise<ReportSummary[]> {
+	const actualRoot = root ?? (await getStorageRoot());
+	await ensureArea(actualRoot, SAVED_AREA);
+	const folders = await listReportFolders(actualRoot, SAVED_AREA);
 	const reports: ReportSummary[] = [];
 
 	for (const folder of folders) {
 		try {
-			const raw = await readReportJson(SAVED_AREA, folder);
+			const raw = await readReportJson(actualRoot, SAVED_AREA, folder);
 			const parsed = JSON.parse(raw) as { reportId?: unknown; reportName?: unknown };
 			if (typeof parsed.reportId !== "string" || !parsed.reportId) {
 				continue;
@@ -230,7 +275,8 @@ export async function listSavedReports(): Promise<ReportSummary[]> {
 				reportId: parsed.reportId,
 				reportName: typeof parsed.reportName === "string" ? parsed.reportName : "",
 				folder,
-				updatedAt: await getReportUpdatedAt(SAVED_AREA, folder),
+				root: actualRoot,
+				updatedAt: await getReportUpdatedAt(actualRoot, SAVED_AREA, folder),
 			});
 		} catch {
 			// 单个目录坏了就跳过，不让整个列表打不开
@@ -241,16 +287,21 @@ export async function listSavedReports(): Promise<ReportSummary[]> {
 }
 
 /** 打开一份已保存的报告 */
-export async function openReport(folder: string, options: { silent?: boolean } = {}): Promise<void> {
+export async function openReport(
+	folder: string,
+	options: { silent?: boolean; root?: string } = {},
+): Promise<void> {
+	const root = options.root ?? (await getStorageRoot());
 	try {
-		const raw = await readReportJson(SAVED_AREA, folder);
+		const raw = await readReportJson(root, SAVED_AREA, folder);
 		const result = parseReportFile(JSON.parse(raw));
 		applyReportFile(result.file);
+		reportStore.setRootPath(root);
 		// 换了文档：历史清空，保存状态重置为"已保存且干净"
 		historyStore.reset();
 		saveStateStore.reset(true);
 		// 打开别的报告时，之前的草稿没有意义了
-		await clearDrafts();
+		await clearDrafts(root);
 		if (!options.silent) {
 			toast.add({ title: `已打开「${result.file.reportName || "未命名报告"}」`, type: "success" });
 		}
@@ -267,10 +318,10 @@ export async function openReport(folder: string, options: { silent?: boolean } =
 }
 
 /** 清空全部草稿（打开报告后调用） */
-async function clearDrafts(): Promise<void> {
-	const folders = await listReportFolders(DRAFT_AREA);
+async function clearDrafts(root: string): Promise<void> {
+	const folders = await listReportFolders(root, DRAFT_AREA);
 	for (const folder of folders) {
-		await removeReportDir(DRAFT_AREA, folder);
+		await removeReportDir(root, DRAFT_AREA, folder);
 	}
 }
 
@@ -294,7 +345,7 @@ export async function restoreLastReport(): Promise<void> {
 		const reports = await listSavedReports();
 		const latest = reports[0];
 		if (latest) {
-			await openReport(latest.folder, { silent: true });
+			await openReport(latest.folder, { silent: true, root: latest.root });
 			return;
 		}
 	} catch (error) {
@@ -306,14 +357,16 @@ export async function restoreLastReport(): Promise<void> {
 
 /** 数据目录的绝对路径（抽屉里展示） */
 export async function getDataDirPath(): Promise<string> {
-	return getAbsolutePath(SAVED_AREA);
+	const root = await getCurrentReportRoot();
+	return getAbsolutePath(root, SAVED_AREA);
 }
 
 /** 在文件管理器里定位数据目录 */
 export async function revealDataDir(): Promise<void> {
 	try {
+		const root = await getCurrentReportRoot();
 		// 目录还不存在时先建出来，否则系统会拒绝定位一个不存在的路径
-		await ensureArea(SAVED_AREA);
+		await ensureArea(root, SAVED_AREA);
 		await revealItemInDir(await getDataDirPath());
 	} catch (error) {
 		toast.add({ title: "无法打开目录", description: toErrorMessage(error), type: "error" });

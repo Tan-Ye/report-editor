@@ -54,9 +54,9 @@ export function OpenReportDrawer() {
 		};
 	}, [open]);
 
-	const handleOpen = (folder: string) => {
+	const handleOpen = (folder: string, root: string) => {
 		setOpen(false);
-		void openReport(folder);
+		void openReport(folder, { root });
 	};
 
 	return (
@@ -93,7 +93,7 @@ export function OpenReportDrawer() {
 							<button
 								key={report.reportId}
 								type="button"
-								onClick={() => handleOpen(report.folder)}
+								onClick={() => handleOpen(report.folder, report.root)}
 								className="flex w-full flex-col gap-0.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent"
 							>
 								<span className="truncate text-sm font-medium text-foreground">
