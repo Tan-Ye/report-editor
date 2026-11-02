@@ -1,10 +1,22 @@
 import type { ElementInfo } from "./element";
+import type { FillSpec } from "./fill";
 import { createUniqueId } from "@/lib/utils";
+
+/** 页面级样式。单独一层是为了以后还有出血位、网格线之类的属性 */
+export interface PageStyle {
+	/** 绘制区域的填充（纯色 / 渐变 / 图片） */
+	fill?: FillSpec;
+}
 
 export interface PageInfo {
 	pageId: string;
 	pageName: string;
 	elements: ElementInfo[];
+	/**
+	 * 页面背景（绘制区域的填充）。不填就是默认白纸。
+	 * 背景不是页面里的元素 —— 它永远铺在最底层，不参与选中/层级/对齐。
+	 */
+	style?: PageStyle;
 }
 
 export interface PagesState {
@@ -205,6 +217,16 @@ class PageStore {
 			byId.set(element.id, element);
 		}
 		this.setElementsOfCurrentPage(this.currentPage.elements.map((item) => byId.get(item.id) ?? item));
+	}
+
+	/**
+	 * 更新当前页的样式（目前只有背景填充）。
+	 * 这里要通知订阅方：属性面板得把新的色值显示出来。
+	 * 不会触发画布重载 —— revision 没变，use-page 的 syncPage 会直接返回。
+	 */
+	updateCurrentPageStyle(style: PageStyle) {
+		this.updateCurrentPage({ ...this.currentPage, style });
+		this.emit();
 	}
 
 	/** 元素集合的唯一写入口：统一改成不可变更新，避免多处直接改数组 */

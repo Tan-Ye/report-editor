@@ -12,6 +12,7 @@ import {
 } from "@/store";
 import { getReportFolderName, type ReportArea } from "./report-path";
 import {
+	copyMediaDir,
 	ensureArea,
 	ensureReportFolder,
 	getAbsolutePath,
@@ -35,6 +36,18 @@ export interface ReportSummary {
 /** 已保存报告统一放 data，未保存的草稿放 cache */
 const SAVED_AREA: ReportArea = "data";
 const DRAFT_AREA: ReportArea = "cache";
+
+/**
+ * 当前报告在应用数据目录下的相对路径（`data/xxx` 或 `cache/xxx`）。
+ * 导入媒体文件时要用它决定放到哪个报告目录里。
+ */
+export async function getCurrentReportDir(): Promise<string> {
+	const { reportName, reportId } = reportStore.state;
+	const area: ReportArea = saveStateStore.getState().persisted ? SAVED_AREA : DRAFT_AREA;
+	const folder =
+		(await findReportFolder(area, reportId)) ?? getReportFolderName(reportName, reportId);
+	return `${area}/${folder}`;
+}
 
 /**
  * 同步定格当前文档为 JSON。
@@ -70,6 +83,14 @@ export async function saveReport(): Promise<void> {
 			(await findReportFolder(SAVED_AREA, reportId)) ??
 			getReportFolderName(reportName, reportId);
 		await ensureReportFolder(SAVED_AREA, folder);
+		// 草稿阶段的图片存在 cache，保存后 cache 目录会被清掉，先把媒体文件搬过来
+		const draftFolder = await findReportFolder(DRAFT_AREA, reportId);
+		if (draftFolder) {
+			await copyMediaDir(
+				`${DRAFT_AREA}/${draftFolder}/media`,
+				`${SAVED_AREA}/${folder}/media`,
+			);
+		}
 		await writeJsonAtomically(getFolderJsonPath(SAVED_AREA, folder), json);
 		await relocateFolderToMatchName(folder, reportName, reportId);
 		await removeDraftFolder(reportId);

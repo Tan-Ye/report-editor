@@ -4,10 +4,12 @@ import {
 	exists,
 	mkdir,
 	readDir,
+	readFile,
 	readTextFile,
 	remove,
 	rename,
 	stat,
+	writeFile,
 	writeTextFile,
 } from "@tauri-apps/plugin-fs";
 import {
@@ -124,4 +126,29 @@ export async function removeReportDir(area: ReportArea, folder: string): Promise
 /** media 目录的相对路径，媒体文件导入时会用到 */
 export function mediaDirOf(area: ReportArea, reportName: string, reportId: string): string {
 	return getReportMediaDir(area, reportName, reportId);
+}
+
+/**
+ * 把一组媒体文件从草稿目录复制到已保存目录。
+ *
+ * 草稿阶段的图片存在 cache，保存后 cache 目录会被清掉；
+ * 不搬的话 JSON 里写的 `media/xxx.png` 就指向了不存在的位置。
+ * JSON 里的路径是相对报告目录的，所以目标文件名原样保留、一个字节都不用改。
+ */
+export async function copyMediaDir(sourceDir: string, targetDir: string): Promise<void> {
+	if (!(await exists(sourceDir, { baseDir: BASE_DIR }))) {
+		return;
+	}
+	const entries = await readDir(sourceDir, { baseDir: BASE_DIR });
+	if (entries.length === 0) {
+		return;
+	}
+	await mkdir(targetDir, { baseDir: BASE_DIR, recursive: true });
+	for (const entry of entries) {
+		if (!entry.isFile) {
+			continue;
+		}
+		const bytes = await readFile(`${sourceDir}/${entry.name}`, { baseDir: BASE_DIR });
+		await writeFile(`${targetDir}/${entry.name}`, bytes, { baseDir: BASE_DIR });
+	}
 }

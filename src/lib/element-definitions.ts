@@ -7,6 +7,7 @@ import {
 	TEXT_FONT_FAMILY,
 	TEXT_FONT_SIZE,
 	TEXT_LINE_HEIGHT,
+	UNIT_SIZE,
 	lineStyleToElementType,
 	LINE_STYLE_OPTIONS,
 	type LineStyle,
@@ -17,11 +18,13 @@ import type { ElementType } from "@/store";
 
 /**
  * 元素几何类型：
- * - size：直接把宽高写进对象（矩形这类原生对象）
- * - stretch：把基准路径按拖拽框缩放（各种 SVG 形状）
- * - segment：用起点/终点确定一条线（线条类）
+ * - size：有独立宽高的元素（矩形、形状、文本）
+ * - segment：线条，用「起点 + 角度 + 长度」描述
+ *
+ * 元素身上不存缩放：形状与线条这类几何写死在数据里的元素，
+ * 会话中手动拉伸时 fabric 内部会用 scale，`dumpElementAttrs` 会把 scale 折算回宽高再落盘。
  */
-export type ElementGeometry = "size" | "stretch" | "segment";
+export type ElementGeometry = "size" | "segment";
 
 /** 一次拖拽产生的范围，同时给出矩形框和线段两套坐标 */
 export interface DragBox {
@@ -40,6 +43,13 @@ export interface ElementDefinition {
 	type: ElementType;
 	geometry: ElementGeometry;
 	/**
+	 * 改尺寸的方式：
+	 * - props（默认）：直接写 width/height，fabric 会按新尺寸重画（矩形、文本）
+	 * - scale：几何写死在路径数据里，只能整体缩放（形状、线条）。
+	 *   缩放会被 `dumpElementAttrs` 折算回宽高，读文件时再按宽高重新生成几何。
+	 */
+	sizeMode?: "props" | "scale";
+	/**
 	 * 从拖拽范围直接造一个对象。
 	 * 预览每帧都重建：如果改用「基准形状 + scaleX 拉伸」，虚线间距和箭头大小会跟着被拉伸变形。
 	 */
@@ -47,9 +57,6 @@ export interface ElementDefinition {
 	/** 持久化白名单，属性面板可编辑的字段也应来自这里 */
 	props: readonly string[];
 }
-
-/** 形状路径的基准坐标系尺寸（属性面板换算展示尺寸时也要用） */
-export const UNIT_SIZE = 100;
 
 const SHAPE_STROKE_WIDTH = 1;
 
@@ -74,8 +81,8 @@ const RECT_PROPS = [
 const SHAPE_PROPS = [
 	"left",
 	"top",
-	"scaleX",
-	"scaleY",
+	"width",
+	"height",
 	"angle",
 	"opacity",
 	"fill",
@@ -107,8 +114,6 @@ const TEXT_PROPS = [
 	"fontWeight",
 	"textAlign",
 	"lineHeight",
-	"scaleX",
-	"scaleY",
 	// 文本内容：不存这一项等于什么都没保存
 	"text",
 ] as const;
@@ -151,19 +156,65 @@ function buildRect(box: DragBox): fabric.FabricObject {
 	});
 }
 
+/** 解析后的路径命令。fabric 的强类型元组在 map 里不好拼，这里用宽松形式处理 */
+type PathCommand = [string, ...number[]];
+
+/**
+ * 把基准路径按目标尺寸重新生成一份。
+ *
+ * `makePathSimpler` 会把相对命令、弧线、简写曲线统一展开成绝对坐标，
+ * 所以这里只需要处理「成对的 x,y」和单独的 H/V —— A 的 rx/ry 也就自动跟着解决了。
+ */
+function scaleShapePath(path: string, scaleX: number, scaleY: number): string {
+	if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY)) {
+		return path;
+	}
+	if (scaleX === 1 && scaleY === 1) {
+		return path;
+	}
+
+	const parsed = fabric.util.parsePath(path) as unknown as PathCommand[];
+	const simplified = fabric.util.makePathSimpler(
+		parsed as unknown as Parameters<typeof fabric.util.makePathSimpler>[0],
+	) as unknown as PathCommand[];
+
+	const scaled = simplified.map(([command, ...args]): PathCommand => {
+		if (command === "Z") {
+			return [command];
+		}
+		if (command === "H") {
+			return [command, args[0] * scaleX];
+		}
+		if (command === "V") {
+			return [command, args[0] * scaleY];
+		}
+		const points = [...args];
+		for (let index = 0; index + 1 < points.length; index += 2) {
+			points[index] *= scaleX;
+			points[index + 1] *= scaleY;
+		}
+		return [command, ...points];
+	});
+
+	return fabric.util.joinPath(
+		scaled as unknown as Parameters<typeof fabric.util.joinPath>[0],
+	);
+}
+
 function buildShape(type: ShapeType, box: DragBox): fabric.FabricObject {
 	const palette = getReportPalette();
-	return new fabric.Path(SHAPE_PATHS[type], {
+	// 路径直接按目标尺寸生成，不靠 scale 撑开：元素身上不留缩放，
+	// 拖拽框多大形状就多大，不会出现「100×100 的形状配一个 scale」这种两套尺寸
+	const path = scaleShapePath(SHAPE_PATHS[type], box.width / UNIT_SIZE, box.height / UNIT_SIZE);
+	return new fabric.Path(path, {
 		left: box.left,
 		top: box.top,
 		originX: "left",
 		originY: "top",
-		scaleX: box.width / UNIT_SIZE,
-		scaleY: box.height / UNIT_SIZE,
 		fill: palette.shapeFill,
 		stroke: palette.shapeStroke,
 		strokeWidth: SHAPE_STROKE_WIDTH,
-		// 非等比缩放时保持描边粗细一致，否则横向拉伸会把左右两边的线拉粗
+		// 手动拉伸的当下还是走 scale，靠它把描边粗细钉住，直到松手折算成宽高
 		strokeUniform: true,
 		objectCaching: false,
 	});
@@ -277,7 +328,8 @@ export const ELEMENT_DEFINITIONS: ElementDefinition[] = [
 	},
 	...SHAPE_OPTIONS.map(({ value }) => ({
 		type: value,
-		geometry: "stretch" as const,
+		geometry: "size" as const,
+		sizeMode: "scale" as const,
 		build: (box: DragBox) => buildShape(value, box),
 		props: SHAPE_PROPS,
 	})),

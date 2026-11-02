@@ -1,3 +1,4 @@
+import type { FillSpec } from "@/store";
 import type { AlignDirection } from "./align";
 
 // 订阅事件常量集
@@ -16,11 +17,47 @@ export const EmitterNameEnum = {
 
 type EmitterNames = (typeof EmitterNameEnum)[keyof typeof EmitterNameEnum];
 
-/** 元素命令载荷：目前只有对齐 */
-export interface ElementCommandPayload {
-	type: "align";
-	direction: AlignDirection;
+/** 属性面板可以改的几何字段。没有对应维度的元素不传（例如线条没有 width） */
+export interface ElementGeometryPatch {
+	left?: number;
+	top?: number;
+	width?: number;
+	height?: number;
+	length?: number;
+	angle?: number;
 }
+
+/** 属性面板可以改的外观字段。元素没有对应白名单字段时会被忽略 */
+export interface ElementStylePatch {
+	/** 填充：纯色 / 渐变 / 图片（文本里它就是字色） */
+	fill?: FillSpec;
+	stroke?: string;
+	strokeWidth?: number;
+	fontSize?: number;
+	fontWeight?: string | number;
+	fontFamily?: string;
+	textAlign?: string;
+	lineHeight?: number;
+}
+
+/** 元素命令载荷：对齐、按属性面板改几何 / 改外观 / 改页面背景 */
+export type ElementCommandPayload =
+	| { type: "align"; direction: AlignDirection }
+	| {
+			type: "update-geometry";
+			id: string;
+			patch: ElementGeometryPatch;
+			/** 是否记一步历史：拖动圆盘时先置 false，松手后再提交 */
+			commit?: boolean;
+	  }
+	| {
+			type: "update-style";
+			id: string;
+			patch: ElementStylePatch;
+			/** 是否记一步历史：拖动取色器时先置 false，松手后再统一提交 */
+			commit?: boolean;
+	  }
+	| { type: "update-page-background"; paint: FillSpec | undefined; commit?: boolean };
 
 type AnyListener = (args: unknown) => void;
 

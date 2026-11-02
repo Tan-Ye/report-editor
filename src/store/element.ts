@@ -1,4 +1,8 @@
 import type { FabricObject } from "fabric";
+import type { FillSpec } from "./fill";
+
+export type { FillSpec, GradientStop, ImageFit } from "./fill";
+export { normalizeFill } from "./fill";
 
 /**
  * 元素属性：既是文件里的内容，也是 store 里存的内容。
@@ -7,18 +11,21 @@ import type { FabricObject } from "fabric";
  * 1. 活对象写不进 JSON —— obj.canvas 与 canvas 的对象列表互相引用会形成环；
  * 2. 一个 FabricObject 只能属于一个 canvas，多页切换时对象生命周期会乱。
  *
- * 属性名与 fabric 的构造参数保持一致，重建时直接覆盖到对象上即可。
+ * **字段分成两类，真值不在同一处**：
+ * - 几何（left/top/angle/width/height/length）与文本 content：fabric 对象是准的，
+ *   拖拽/缩放/编辑时只有它知道最新值，所以要一次 dump 拿回来；
+ * - 样式（fill/stroke/strokeWidth/fontSize/fontFamily/fontWeight/textAlign/lineHeight/opacity）：
+ *   JSON 是准的，fabric 只是渲染目标，**永不回读**。
+ * 这样 `attrs.fill` 里存的始终是我们的 FillSpec，不会被 fabric 的 Gradient/Pattern 覆盖掉。
  */
 export type ElementAttrs = {
 	left?: number;
 	top?: number;
 	width?: number;
 	height?: number;
-	scaleX?: number;
-	scaleY?: number;
 	angle?: number;
 	opacity?: number;
-	fill?: string;
+	fill?: FillSpec;
 	stroke?: string;
 	strokeWidth?: number;
 	/** 业务扩展字段（数据绑定等），fabric 不认识也没关系 */
@@ -95,9 +102,14 @@ export interface SelectionState {
 	ids: string[];
 	/** 只选中一个时才有值。多选时为 null（批量编辑后续再做） */
 	primary: ElementInfo | null;
+	/**
+	 * 选中的是不是页面背景（绘制区域）。
+	 * 背景不是受管元素 —— 没有 id、不在 elements 里，所以用单独一个标记区分「空白没选中」。
+	 */
+	page: boolean;
 }
 
-export const EMPTY_SELECTION: SelectionState = { ids: [], primary: null };
+export const EMPTY_SELECTION: SelectionState = { ids: [], primary: null, page: false };
 
 /**
  * 选中状态。
@@ -125,6 +137,7 @@ class SelectionStore {
 		const current = this.state;
 		const same =
 			next.primary === current.primary &&
+			next.page === current.page &&
 			next.ids.length === current.ids.length &&
 			next.ids.every((id, index) => id === current.ids[index]);
 		if (same) {

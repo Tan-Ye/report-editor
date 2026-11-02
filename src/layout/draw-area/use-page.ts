@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import * as fabric from "fabric";
+import { baseHeight, baseWidth } from "@/base";
 import { toast } from "@/components/ui/toast";
-import { createElementFromInfo } from "@/lib/element-registry";
+import { assignProps, createElementFromInfo, toFabricPaint } from "@/lib/element-registry";
+import { getReportPalette } from "@/lib/theme-tokens";
 import { elementObjectMap, historyStore, pageStore, type PageInfo } from "@/store";
 
 /**
@@ -41,6 +43,13 @@ export function usePage(
 				canvas.remove(object);
 			}
 			canvas.discardActiveObject();
+
+			// 每页可以有自己的背景，切页/撤销重载时一起换掉
+			assignProps(page, {
+				fill:
+					toFabricPaint(pageInfo.style?.fill, { width: baseWidth, height: baseHeight }) ??
+					getReportPalette().pageFill,
+			});
 
 			const missingTypes = new Set<string>();
 			for (const info of pageInfo.elements) {

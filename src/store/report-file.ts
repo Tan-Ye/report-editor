@@ -1,8 +1,9 @@
 import { baseHeight, baseWidth } from "@/base";
-import { TEXT_ELEMENT_TYPE } from "@/base/elements";
+import { TEXT_ELEMENT_TYPE, UNIT_SIZE } from "@/base/elements";
 import { createUniqueId } from "@/lib/utils";
 import type { ElementAttrs, ElementInfo } from "./element";
-import { createPage, pageStore, type PageInfo } from "./page";
+import { normalizeFill } from "./fill";
+import { createPage, pageStore, type PageInfo, type PageStyle } from "./page";
 import { reportStore } from "./report";
 import { REPORT_FILE_VERSION, type ReportFile } from "./schema";
 
@@ -54,6 +55,31 @@ function parseAttrs(raw: unknown): ElementAttrs {
 	return attrs;
 }
 
+/**
+ * 旧格式迁移：形状曾经把尺寸存成相对 UNIT_SIZE 基准坐标系的 scaleX/scaleY。
+ * 现在元素只认宽高，读到旧的 scale 就在这里折算一次，不让它继续往后流。
+ * 文本当年也存了 scale，但内容是自动排版的，直接丢掉即可。
+ */
+function migrateAttrs(attrs: ElementAttrs): ElementAttrs {
+	const { scaleX, scaleY, fill, ...rest } = attrs;
+	const next: ElementAttrs = rest;
+	// 填充统一成 FillSpec（纯色字符串 / 旧渐变对象都会在这里被归一）
+	const normalizedFill = normalizeFill(fill);
+	if (normalizedFill) {
+		next.fill = normalizedFill;
+	}
+	if (typeof scaleX !== "number" && typeof scaleY !== "number") {
+		return next;
+	}
+	if (typeof next.width !== "number") {
+		next.width = UNIT_SIZE * (typeof scaleX === "number" ? scaleX : 1);
+	}
+	if (typeof next.height !== "number") {
+		next.height = UNIT_SIZE * (typeof scaleY === "number" ? scaleY : 1);
+	}
+	return next;
+}
+
 function parseElement(raw: unknown, usedIds: Set<string>, warnings: string[]): ElementInfo | null {
 	if (!isRecord(raw)) {
 		warnings.push("跳过一条非法元素记录（不是对象）");
@@ -73,7 +99,15 @@ function parseElement(raw: unknown, usedIds: Set<string>, warnings: string[]): E
 	}
 	usedIds.add(id);
 
-	return { elementType, id, attrs: parseAttrs(raw.attrs) };
+	return { elementType, id, attrs: migrateAttrs(parseAttrs(raw.attrs)) };
+}
+
+/** 背景只接受纯色字符串 / 旧渐变对象 / 新 FillSpec，其它一律当没设置 */
+function parsePageStyle(raw: unknown, legacyBackground: unknown): PageStyle | undefined {
+	const source = isRecord(raw) ? raw : {};
+	// 旧字段是 PageInfo.background，新结构收进了 style.fill
+	const fill = normalizeFill(source.fill ?? legacyBackground);
+	return fill ? { fill } : undefined;
 }
 
 function parsePage(raw: unknown, warnings: string[]): PageInfo {
@@ -96,7 +130,9 @@ function parsePage(raw: unknown, warnings: string[]): PageInfo {
 		.map((item) => parseElement(item, usedIds, warnings))
 		.filter((item): item is ElementInfo => item !== null);
 
-	return { pageId, pageName, elements };
+	const style = parsePageStyle(raw.style, raw.background);
+
+	return { pageId, pageName, elements, style };
 }
 
 /**

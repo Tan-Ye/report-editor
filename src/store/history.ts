@@ -34,6 +34,8 @@ class HistoryStore {
 	private index = -1;
 	private view: HistoryView = { canUndo: false, canRedo: false };
 	private listeners = new Set<() => void>();
+	/** 文档内容变化的订阅方（缩略图这类「不用跟着状态变、只想知道改过了」的消费者） */
+	private changeListeners = new Set<() => void>();
 
 	subscribe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -41,6 +43,19 @@ class HistoryStore {
 			this.listeners.delete(listener);
 		};
 	};
+
+	/**
+	 * 订阅「文档内容变了」。
+	 * 和 subscribe 的区别：那个只在可撤销/可重做状态变化时通知，
+	 * 而缩略图每次提交都要重画，所以要有一个独立信号。
+	 * @returns 取消订阅
+	 */
+	onDocumentChange(listener: () => void) {
+		this.changeListeners.add(listener);
+		return () => {
+			this.changeListeners.delete(listener);
+		};
+	}
 
 	/** 返回缓存的视图对象：只有状态真的变了才换新引用，满足 useSyncExternalStore 的要求 */
 	getSnapshot = () => this.view;
@@ -66,6 +81,7 @@ class HistoryStore {
 		// 每次文档改动都从历史这里过，标记脏状态放在这一处就不会漏
 		saveStateStore.markDirty();
 		this.updateView();
+		this.notifyDocumentChange();
 	}
 
 	undo() {
@@ -80,6 +96,7 @@ class HistoryStore {
 		this.restore({ pages: to.pages, current: from.current });
 		saveStateStore.markDirty();
 		this.updateView();
+		this.notifyDocumentChange();
 	}
 
 	redo() {
@@ -91,6 +108,7 @@ class HistoryStore {
 		this.restore({ pages: to.pages, current: to.current });
 		saveStateStore.markDirty();
 		this.updateView();
+		this.notifyDocumentChange();
 	}
 
 	/** 重置历史（初始化、打开文件之后调用）：清空栈，把当前状态作为新的起点 */
@@ -119,6 +137,19 @@ class HistoryStore {
 		this.view = { canUndo, canRedo };
 		this.listeners.forEach((listener) => {
 			listener();
+		});
+	}
+
+	/** 文档内容变了：不管能不能撤销，都要通知 */
+	private notifyDocumentChange() {
+		this.changeListeners.forEach((listener) => {
+			// 订阅方抛错不能反噬主流程：commit 是在 fabric 的鼠标事件里同步调的，
+			// 这里炸一次，画布就会停在「拖拽没结束」的状态
+			try {
+				listener();
+			} catch (error) {
+				console.error("文档变更订阅方出错", error);
+			}
 		});
 	}
 }

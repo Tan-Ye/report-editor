@@ -8,9 +8,9 @@ import {
 } from "@/base/elements";
 import {
 	assignProps,
-	dumpElementFromObject,
 	getElementDefinition,
 	isElementLocked,
+	snapshotElementInfo,
 } from "@/lib/element-registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { createUniqueId } from "@/lib/utils";
@@ -94,7 +94,7 @@ export function useTextEditing(
 			}
 
 			elementObjectMap.attach({ id: createUniqueId("element"), elementType: definition.type }, object);
-			const info = dumpElementFromObject(object);
+			const info = snapshotElementInfo(object);
 			if (info) {
 				pageStore.addElementToCurrentPage(info);
 			}

@@ -1,15 +1,19 @@
 import { useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { historyStore, pageStore } from "@/store";
+import { cancelPageThumbnail } from "@/lib/page-thumbnail";
+import { historyStore, pageStore, thumbnailStore } from "@/store";
 import { PageItem } from "./page";
 
 /** 订阅函数与快照函数放模块级：引用稳定，避免每次渲染重新订阅 */
 const subscribePages = (onStoreChange: () => void) => pageStore.subscribe(onStoreChange);
 const getPagesSnapshot = () => pageStore.state;
+const subscribeThumbnails = (onStoreChange: () => void) => thumbnailStore.subscribe(onStoreChange);
+const getThumbnailSnapshot = () => thumbnailStore.getSnapshot();
 
 export function Aside() {
   const { pages, current } = useSyncExternalStore(subscribePages, getPagesSnapshot);
+  const thumbnails = useSyncExternalStore(subscribeThumbnails, getThumbnailSnapshot);
 
   const handleAddPage = () => {
     const index = pageStore.addPage();
@@ -23,7 +27,11 @@ export function Aside() {
   };
 
   const handleDeletePage = (index: number) => {
+    const target = pages[index];
     pageStore.deletePage(index);
+    // 队列里可能还排着这一页，一并撤掉，否则会给已经不存在的页渲染
+    cancelPageThumbnail(target.pageId);
+    thumbnailStore.delete(target.pageId);
     historyStore.commit();
   };
 
@@ -53,10 +61,11 @@ export function Aside() {
             <PageItem
               // pageId 由 createPage 保证非空，未落盘的文件在读取时也会补齐
               key={page.pageId}
+              page={page}
               index={index}
-              name={page.pageName}
               active={index === current}
               canDelete={pages.length > 1}
+              thumbnail={thumbnails.images.get(page.pageId)?.url}
               onSelect={() => handleSelectPage(index)}
               onDelete={() => handleDeletePage(index)}
             />

@@ -16,6 +16,8 @@ export interface CanvasHandle {
 	containerRef: RefObject<HTMLDivElement | null>;
 	/** 挂画布 wrapper 的层 */
 	stageRef: RefObject<HTMLDivElement | null>;
+	/** 平移视口：拖动画布时由 use-space-pan 调用，参数是屏幕像素位移 */
+	panBy: (dx: number, dy: number) => void;
 	/** 卸载收尾，交给 useCanvasTeardown 在组件末尾注册 */
 	teardown: () => void;
 }
@@ -36,6 +38,11 @@ export function useCanvas(): CanvasHandle {
 	const [page, setPage] = useState<fabric.Rect | null>(null);
 	/** 真正的收尾动作，由创建 effect 填进来 */
 	const cleanupRef = useRef<(() => void) | null>(null);
+	/**
+	 * 平移量（屏幕像素），叠加在「页面居中」的视口结果上。
+	 * 用 ref 而不是 state：拖动时每一帧都在变，走 state 会让整个组件树跟着重渲染。
+	 */
+	const panOffsetRef = useRef({ x: 0, y: 0 });
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -76,8 +83,13 @@ export function useCanvas(): CanvasHandle {
 			height: baseHeight,
 			fill: palette.pageFill,
 			objectCaching: false,
+			// 白页可以「被选中」来改背景色，但只是被选中，不能点、不能拖、没有控制点。
+			// 不参与命中检测（evented/selectable 都为 false）是刻意的：
+			// 一旦可点选，框选会把它一起框进去，拖动整个选区就能把页面拖走。
 			selectable: false,
 			evented: false,
+			hasControls: false,
+			hasBorders: true,
 			hoverCursor: "default",
 			shadow: new fabric.Shadow({
 				color: palette.pageShadow,
@@ -88,17 +100,22 @@ export function useCanvas(): CanvasHandle {
 		});
 		fabricCanvas.add(pageRect);
 
-		// 按 store 里的比例铺视口：页面在场景原点，把页面中心对到容器中心
+		// 按 store 里的比例铺视口：页面在场景原点，把页面中心对到容器中心，再叠加平移量
 		const applyViewport = () => {
 			const rect = container.getBoundingClientRect();
-			const { scale } = zoomStore.getSnapshot();
+			const { scale, manual } = zoomStore.getSnapshot();
+			// 「适应窗口」模式下视口要重新居中，之前拖出来的偏移作废
+			if (!manual) {
+				panOffsetRef.current = { x: 0, y: 0 };
+			}
+			const offset = panOffsetRef.current;
 			fabricCanvas.setViewportTransform([
 				scale,
 				0,
 				0,
 				scale,
-				rect.width / 2 - (baseWidth * scale) / 2,
-				rect.height / 2 - (baseHeight * scale) / 2,
+				rect.width / 2 - (baseWidth * scale) / 2 + offset.x,
+				rect.height / 2 - (baseHeight * scale) / 2 + offset.y,
 			]);
 			fabricCanvas.requestRenderAll();
 		};
@@ -162,13 +179,38 @@ export function useCanvas(): CanvasHandle {
 		setPage(pageRect);
 	}, []);
 
+	/**
+	 * 平移画布：只改视口矩阵，不动元素坐标，也不经过 React 状态。
+	 * 偏移量另外记一份 —— 缩放、改窗口时视口会整个重算，靠它把用户拖到的位置保住。
+	 */
+	const panBy = useCallback(
+		(dx: number, dy: number) => {
+			if (!canvas || (dx === 0 && dy === 0)) {
+				return;
+			}
+			const viewport = canvas.viewportTransform;
+			if (!viewport) {
+				return;
+			}
+			viewport[4] += dx;
+			viewport[5] += dy;
+			panOffsetRef.current = {
+				x: panOffsetRef.current.x + dx,
+				y: panOffsetRef.current.y + dy,
+			};
+			// setViewportTransform 内部会重算可视边界并请求重绘
+			canvas.setViewportTransform(viewport);
+		},
+		[canvas],
+	);
+
 	const teardown = useCallback(() => {
 		const cleanup = cleanupRef.current;
 		cleanupRef.current = null;
 		cleanup?.();
 	}, []);
 
-	return { canvas, page, containerRef, stageRef, teardown };
+	return { canvas, page, containerRef, stageRef, panBy, teardown };
 }
 
 /**

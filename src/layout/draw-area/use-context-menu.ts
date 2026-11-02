@@ -3,8 +3,8 @@ import { flushSync } from "react-dom";
 import * as fabric from "fabric";
 import {
 	applyElementLock,
-	dumpElementFromObject,
 	isElementLocked,
+	readElementInfo,
 } from "@/lib/element-registry";
 import {
 	coordination,
@@ -43,7 +43,7 @@ export function useContextMenu(canvas: fabric.Canvas | null) {
 		 */
 		function handleContextMenu(opt: { target?: fabric.FabricObject }) {
 			const target = opt.target;
-			const info = target ? dumpElementFromObject(target) : null;
+			const info = target ? readElementInfo(target) : null;
 
 			if (!target || !info) {
 				// 空白处或白页背景：不弹菜单
@@ -80,7 +80,7 @@ export function useContextMenu(canvas: fabric.Canvas | null) {
 					onToggleLock: () => {
 						const nextLocked = !isElementLocked(target);
 						applyElementLock(target, nextLocked);
-						const nextInfo = dumpElementFromObject(target);
+						const nextInfo = readElementInfo(target);
 						if (nextInfo) {
 							pageStore.updateElementInCurrentPage(nextInfo);
 						}

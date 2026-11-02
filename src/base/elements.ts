@@ -21,6 +21,13 @@ export type ShapeType =
 	| "arrow"
 	| "bubble";
 
+/**
+ * 形状路径的基准坐标系边长：所有 SHAPE_PATHS 都画在 UNIT_SIZE × UNIT_SIZE 里，
+ * 绘制时按目标尺寸重新生成路径。
+ * 旧格式把尺寸存成相对它的 scaleX/scaleY，读文件时要用它换算。
+ */
+export const UNIT_SIZE = 100;
+
 export interface ElementOption<T extends string> {
 	value: T;
 	label: string;
@@ -62,6 +69,29 @@ export const TEXT_FONT_SIZE = 24;
 export const TEXT_LINE_HEIGHT = 1.4;
 export const TEXT_FONT_FAMILY =
 	"Inter, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif";
+
+/** 属性面板可选字体。值是直接写进 fabric 的 fontFamily，所以要把回退字体一起带上 */
+export const TEXT_FONT_OPTIONS: ElementOption<string>[] = [
+	{ value: TEXT_FONT_FAMILY, label: "Inter" },
+	{ value: "'Microsoft YaHei', 'PingFang SC', sans-serif", label: "雅黑" },
+	{ value: "'SimHei', 'Heiti SC', sans-serif", label: "黑体" },
+	{ value: "'SimSun', 'Songti SC', serif", label: "宋体" },
+	{ value: "Arial, Helvetica, sans-serif", label: "Arial" },
+];
+
+/** 字重档位：fabric 的 fontWeight 接受数字或字符串 */
+export const TEXT_WEIGHT_OPTIONS = [
+	{ value: "400", label: "常规" },
+	{ value: "500", label: "中等" },
+	{ value: "700", label: "粗体" },
+] as const;
+
+/** 文本对齐 */
+export const TEXT_ALIGN_OPTIONS = [
+	{ value: "left", label: "左" },
+	{ value: "center", label: "中" },
+	{ value: "right", label: "右" },
+] as const;
 
 /**
  * 五角星路径。

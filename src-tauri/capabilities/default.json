@@ -9,6 +9,7 @@
     "core:default",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
+    "dialog:allow-open",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [

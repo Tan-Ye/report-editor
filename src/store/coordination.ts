@@ -22,7 +22,7 @@ export class Coordination {
 
 	/** 添加元素时：新元素立即成为唯一选中项 */
 	onElementAdd(element: ElementInfo) {
-		selectionStore.setSelection({ ids: [element.id], primary: element });
+		selectionStore.setSelection({ ids: [element.id], primary: element, page: false });
 		pageStore.addElementToCurrentPage(element);
 	}
 

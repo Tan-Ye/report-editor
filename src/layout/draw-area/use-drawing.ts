@@ -4,8 +4,8 @@ import { TEXT_ELEMENT_TYPE, lineStyleToElementType } from "@/base/elements";
 import { toast } from "@/components/ui/toast";
 import {
 	assignProps,
-	dumpElementFromObject,
 	getElementDefinition,
+	snapshotElementInfo,
 	type DragBox,
 	type ElementDefinition,
 } from "@/lib/element-registry";
@@ -273,7 +273,7 @@ export function useDrawing(
 			assignProps(object, { selectable: true, evented: true });
 
 			elementObjectMap.attach({ id: createUniqueId("element"), elementType: definition.type }, object);
-			const info = dumpElementFromObject(object);
+			const info = snapshotElementInfo(object);
 			if (info) {
 				pageStore.addElementToCurrentPage(info);
 			}

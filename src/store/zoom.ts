@@ -60,7 +60,13 @@ class ZoomStore {
 
 	/** 回到「适应窗口」：用最近一次算出的适配比例，并交还自动适配 */
 	fit() {
+		const before = this.state;
 		this.setScaleInternal(this.fitScale, false);
+		// 比例和模式都没变时 setScaleInternal 不通知，但「适应窗口」还要求画布
+		// 把平移量清零、重新居中，所以这种情况补一次通知
+		if (this.state === before) {
+			this.emit();
+		}
 	}
 
 	private setScaleInternal(scale: number, manual: boolean) {

@@ -12,5 +12,6 @@ export * from "./report";
 export * from "./report-file";
 export * from "./save-state";
 export * from "./schema";
+export * from "./thumbnail";
 export * from "./tool";
 export * from "./zoom";
