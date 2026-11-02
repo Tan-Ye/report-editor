@@ -4,10 +4,19 @@ import { baseHeight, baseWidth } from "@/base";
 import { elementObjectMap, pageStore, snapStore } from "@/store";
 
 /**
- * 吸附阈值：5 个**场景单位**（页面单位，不是屏幕像素）。
- * 跟着画布单位走，缩放时语义不变；代价是缩得很小时手感会偏"软"。
+ * 吸附阈值 = max(5 个场景单位, 8 个屏幕像素换算成的场景距离)。
+ *
+ * 只按场景单位算的话，在「适应窗口」（约 40%）下 5 个单位只有 2 个屏幕像素，
+ * 鼠标根本放不进去，看起来就是「吸附没生效」。屏幕上给个下限才是手感正确的那一半：
+ * 阈值本来就是「手能瞄多准」，跟缩放有关系；而吸附目标（顶点、参考线）仍然是场景坐标，
+ * 不会因为缩放而漂移。
  */
-const SNAP_THRESHOLD = 5;
+const SNAP_UNITS = 5;
+const MIN_SNAP_PIXELS = 8;
+
+function snapTolerance(scale: number): number {
+	return Math.max(SNAP_UNITS, MIN_SNAP_PIXELS / Math.max(scale, 0.01));
+}
 
 /**
  * 在候选坐标里找最近的一个。
@@ -94,16 +103,22 @@ export function useSnapping(canvas: fabric.Canvas | null) {
 				return;
 			}
 
+			// ⚠️ fabric 是在 fire(MOVING) 之后才调 setCoords 的，所以这里直接读 getCoords()
+			// 拿到的是上一帧的坐标（还带着上一次的吸附偏移）。不先自己重算一次，
+			// 吸附就会基于「已吸附的位置」再算增量 —— 正反馈，元素在参考线附近来回弹。
+			target.setCoords();
 			const corners = target.getCoords();
+			// 阈值跟着缩放走：缩得越小，屏幕上留出的吸附窗口越大（场景单位）
+			const tolerance = snapTolerance(canvas.getZoom());
 			const deltaX = nearestDelta(
 				corners.map((point) => point.x),
 				candidatesX,
-				SNAP_THRESHOLD,
+				tolerance,
 			);
 			const deltaY = nearestDelta(
 				corners.map((point) => point.y),
 				candidatesY,
-				SNAP_THRESHOLD,
+				tolerance,
 			);
 
 			if (deltaX) {
