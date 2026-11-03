@@ -1,7 +1,9 @@
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
 import { pageStore, thumbnailStore, type PageInfo } from "@/store";
+import { runWhenIdle } from "@/lib/utils";
 import { buildElementObject, toFabricPaint } from "./element-registry";
+import { collectImageSources, ensureMediaImages } from "./media";
 import { getReportPalette } from "./theme-tokens";
 
 /** 缩略图输出宽度（像素）：侧栏显示约 160px，取 2× 让高清屏不糊 */
@@ -87,15 +89,6 @@ export function renderPageThumbnail(page: PageInfo): string | null {
 const queue: string[] = [];
 let scheduled = false;
 
-/** 空闲时跑活；没有 requestIdleCallback 的环境退化成短延时 */
-function runWhenIdle(task: () => void) {
-	if (typeof window.requestIdleCallback === "function") {
-		window.requestIdleCallback(() => task(), { timeout: 600 });
-		return;
-	}
-	window.setTimeout(task, 120);
-}
-
 /**
  * 请求某一页的缩略图。
  * 已经是最新的、或已经在队列里，都会直接跳过 —— 调用方可以每次渲染都无脑调。
@@ -125,10 +118,12 @@ function scheduleFlush() {
 	}
 	scheduled = true;
 	// 一次空闲只做一页：整批塞进去会把主线程占满，交互就不跟手了
-	runWhenIdle(flush);
+	runWhenIdle(() => {
+		void flush();
+	});
 }
 
-function flush() {
+async function flush() {
 	scheduled = false;
 	const pageId = queue.shift();
 	if (!pageId) {
@@ -137,14 +132,23 @@ function flush() {
 
 	// 排队期间这一页可能被改过、甚至被删了，所以在这里重新取一次最新数据
 	const page = pageStore.getPages().find((item) => item.pageId === pageId);
-	if (page) {
-		if (page.elements.length === 0 && !page.style?.fill) {
-			// 变空了：撤掉旧图，别让已经不存在的画面留在侧栏
-			thumbnailStore.delete(page.pageId);
-		} else if (!thumbnailStore.isFresh(page.pageId, page)) {
-			const url = renderPageThumbnail(page);
+	if (!page) {
+		return;
+	}
+
+	if (page.elements.length === 0 && !page.style?.fill) {
+		// 变空了：撤掉旧图，别让已经不存在的画面留在侧栏
+		thumbnailStore.delete(page.pageId);
+	} else if (!thumbnailStore.isFresh(page.pageId, page)) {
+		// 离屏渲染是同步的，图片却要过 IPC + decode：先等图落地，
+		// 否则从没被打开过的页面在侧栏里就会缺图
+		await ensureMediaImages(collectImageSources([page]));
+		// 等图期间数据可能又变了，重新取一次再渲染
+		const latest = pageStore.getPages().find((item) => item.pageId === pageId);
+		if (latest && !thumbnailStore.isFresh(pageId, latest)) {
+			const url = renderPageThumbnail(latest);
 			if (url) {
-				thumbnailStore.set(page.pageId, url, page);
+				thumbnailStore.set(latest.pageId, url, latest);
 			}
 		}
 	}

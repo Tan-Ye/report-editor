@@ -7,6 +7,7 @@ import {
 	useCloseGuard,
 	useDraftAutosave,
 	useHistoryShortcuts,
+	useMediaPreload,
 	useRestoreReport,
 	useSaveShortcut,
 	useUiPreferences,
@@ -23,6 +24,8 @@ function App() {
   useRestoreReport();
   // 本地 UI 偏好：最近使用色这类不进文档的习惯
   useUiPreferences();
+  // 图片预载：所有页的图都排队加载，切页/缩略图不缺图
+  useMediaPreload();
   // 关窗拦截：有未保存内容时先问一句
   const closeGuard = useCloseGuard();
 

@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "@/components/ui/toast";
-import type { FillSpec } from "@/store";
+import { runWhenIdle } from "@/lib/utils";
+import type { FillSpec, PageInfo } from "@/store";
 import { getCurrentReportDir, getCurrentReportRelativeDir, getCurrentReportRoot } from "./report-service";
 
 /** 支持导入的图片类型（和 Rust 侧的白名单保持一致） */
@@ -44,13 +45,31 @@ export async function importImageFill(): Promise<FillSpec | null> {
 
 /** 已解码的图片缓存：FillSpec 里存的是相对路径，运行时才换成真正的位图 */
 const imageCache = new Map<string, HTMLImageElement>();
-const pending = new Set<string>();
+/** 正在加载的请求：同一个 source 只发一次，也用来让调用方 await */
+const loading = new Map<string, Promise<void>>();
 
 let onImageReady: () => void = () => {};
 
 /** 图片加载完成后通知画布重绘 + 重算填充（由 use-selection 注册） */
 export function setMediaImageListener(listener: () => void): void {
 	onImageReady = listener;
+}
+
+/**
+ * 合并同一帧内的多次"图片就绪"通知。
+ * 后台预载会连续加载十几张图，每张都重算一遍填充太浪费。
+ */
+let readyScheduled = false;
+
+function notifyImageReady(): void {
+	if (readyScheduled) {
+		return;
+	}
+	readyScheduled = true;
+	requestAnimationFrame(() => {
+		readyScheduled = false;
+		onImageReady();
+	});
 }
 
 async function loadMediaImage(source: string): Promise<HTMLImageElement> {
@@ -65,6 +84,100 @@ async function loadMediaImage(source: string): Promise<HTMLImageElement> {
 }
 
 /**
+ * 从页面里收集所有图片填充的 source（元素 + 页面背景）。
+ * 打开文档预载、渲染缩略图之前都要用它。
+ */
+export function collectImageSources(pages: readonly PageInfo[]): string[] {
+	const sources = new Set<string>();
+	const add = (fill: unknown) => {
+		if (typeof fill !== "object" || fill === null) {
+			return;
+		}
+		const spec = fill as { kind?: unknown; source?: unknown };
+		if (spec.kind === "image" && typeof spec.source === "string" && spec.source) {
+			sources.add(spec.source);
+		}
+	};
+	for (const page of pages) {
+		add(page.style?.fill);
+		for (const element of page.elements) {
+			add(element.attrs.fill);
+		}
+	}
+	return [...sources];
+}
+
+/**
+ * 预载队列，分两档：
+ *
+ * - `inserted`：新插入的图。用户刚贴上去就等着看效果，下一帧就得加载
+ * - `background`：文档里其它页的图。一次空闲帧加载一张，不抢主线程
+ *
+ * 当前页的图和侧栏可见页的图**不进队列**，由主画布/缩略图按需立即请求 ——
+ * 它们本来就比后台预载更急。
+ */
+const insertedQueue: string[] = [];
+const backgroundQueue: string[] = [];
+let preloadScheduled = false;
+
+/**
+ * 把图片排进预载队列。
+ *
+ * `inserted: true` 插队（文档内新插入的图），默认排到队尾（打开文档时的预载）。
+ */
+export function preloadMediaImages(
+	sources: string[],
+	options: { inserted?: boolean } = {},
+): void {
+	const queue = options.inserted ? insertedQueue : backgroundQueue;
+	let queued = false;
+	for (const source of sources) {
+		if (
+			imageCache.has(source) ||
+			loading.has(source) ||
+			insertedQueue.includes(source) ||
+			backgroundQueue.includes(source)
+		) {
+			continue;
+		}
+		queue.push(source);
+		queued = true;
+	}
+	if (queued) {
+		schedulePreload();
+	}
+}
+
+function schedulePreload(): void {
+	if (preloadScheduled) {
+		return;
+	}
+	preloadScheduled = true;
+	runWhenIdle(() => {
+		preloadScheduled = false;
+		// 插队的先来：新插入的图比文档里其它页的图更急
+		const next = insertedQueue.shift() ?? backgroundQueue.shift();
+		if (!next) {
+			return;
+		}
+		// 排队期间可能已经被主画布/缩略图加载过了，别重复读
+		if (!imageCache.has(next) && !loading.has(next)) {
+			loadMediaImage(next)
+				.then((image) => {
+					imageCache.set(next, image);
+					notifyImageReady();
+				})
+				.catch((error) => {
+					console.error("图片预载失败", next, error);
+				});
+		}
+		if (insertedQueue.length > 0 || backgroundQueue.length > 0) {
+			schedulePreload();
+		}
+	});
+}
+
+/**
  * 同步取已解码的图片；没加载过就顺手发起加载并返回 undefined。
  *
  * 填充的转换链路是同步的（建对象、渲染缩略图都在同步流程里），
@@ -75,20 +188,41 @@ export function getMediaImage(source: string): HTMLImageElement | undefined {
 	if (cached) {
 		return cached;
 	}
-	if (pending.has(source)) {
-		return undefined;
+	if (!loading.has(source)) {
+		const task = loadMediaImage(source)
+			.then((image) => {
+				imageCache.set(source, image);
+				notifyImageReady();
+			})
+			.catch((error) => {
+				console.error("图片加载失败", source, error);
+			})
+			.finally(() => {
+				loading.delete(source);
+			});
+		loading.set(source, task);
 	}
-	pending.add(source);
-	void loadMediaImage(source)
-		.then((image) => {
-			imageCache.set(source, image);
-			onImageReady();
-		})
-		.catch((error) => {
-			console.error("图片加载失败", source, error);
-		})
-		.finally(() => {
-			pending.delete(source);
-		});
 	return undefined;
+}
+
+/**
+ * 等这些图片全部落地（没加载过的会顺手发起加载）。
+ *
+ * 缩略图是离屏同步渲染的，而图片要过 IPC 读文件 + decode；
+ * 不先等一下，从没被打开过的页面在侧栏里就会缺图。
+ */
+export async function ensureMediaImages(sources: string[]): Promise<void> {
+	const tasks: Promise<void>[] = [];
+	for (const source of sources) {
+		if (imageCache.has(source)) {
+			continue;
+		}
+		// 先发起加载，再拿到它的 Promise
+		getMediaImage(source);
+		const task = loading.get(source);
+		if (task) {
+			tasks.push(task);
+		}
+	}
+	await Promise.all(tasks);
 }

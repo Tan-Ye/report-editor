@@ -2,6 +2,7 @@
 export * from "./use-close-guard";
 export * from "./use-draft-autosave";
 export * from "./use-history-shortcuts";
+export * from "./use-media-preload";
 export * from "./use-restore-report";
 export * from "./use-save-shortcut";
 export * from "./use-ui-preferences";
