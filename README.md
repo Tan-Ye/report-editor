@@ -97,14 +97,19 @@ pnpm test && npx tsc --noEmit
 pnpm tauri build
 ```
 
-产物：
+产物只有一个：
 
 ```
-src-tauri/target/release/bundle/nsis/report-editor_<版本>_x64-setup.exe   # 推荐
-src-tauri/target/release/bundle/msi/report-editor_<版本>_x64_en-US.msi
+src-tauri/target/release/bundle/nsis/report-editor_<版本>_x64-setup.exe
 ```
 
-把这两个文件传到 GitHub Release，说明直接用 `CHANGELOG.md` 里对应版本那一段。
+`target/release/report-editor.exe` 是裸程序（前端已嵌进去，能直接双击），适合本机验证，
+不适合分发：没有开始菜单项、没有卸载入口、也没有 WebView2 引导。
+
+把它传到 GitHub Release，说明直接用 `CHANGELOG.md` 里对应版本那一段。
+
+> 只打 NSIS 是因为个人用户不需要 MSI。企业批量部署（GPO）时把
+> `tauri.conf.json` 的 `bundle.targets` 改成 `["nsis", "msi"]` 或 `"all"` 即可。
 
 ## 数据存放
 
