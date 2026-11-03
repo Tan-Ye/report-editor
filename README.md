@@ -41,6 +41,18 @@
 - 金标报告 `test/fixtures/report-v1.json` 作为格式基准与样例
 - 41 个纯函数单测（解析、填充、路径、序列化幂等）
 
+## 安装（Windows）
+
+从 [Releases](https://github.com/Tan-Ye/report-editor/releases) 下载 `report-editor_0.1.0_x64-setup.exe`，双击安装即可。
+
+**安装包没有代码签名**，Windows 可能会拦一下：
+
+- 弹「Windows 已保护你的电脑」→ 点 **更多信息** → **仍要运行**
+- 提示「此应用已被系统管理员阻止」或文件被安全软件隔离 → 这是系统策略（智能应用控制 / AppLocker）拦的，
+  在「Windows 安全中心 → 应用和浏览器控制」里放行，或找管理员加白名单
+
+卸载走系统「设置 → 应用」，**不会删除报告数据**——数据在下面「数据存放」的目录里，需要时手动清理。
+
 ## 开发
 
 需要 Node 20+、pnpm、Rust，以及 Windows 上的 Tauri 依赖（WebView2、MSVC 工具链）。
@@ -66,7 +78,7 @@ pnpm tauri build   # 打安装包，产物在 src-tauri/target/release/bundle/
     └── report.json            # 草稿：未保存的改动，保存成功后清掉
 ```
 
-内置数据目录在 `%APPDATA%/com.admin.tauri-app-template`；用户添加的目录下会自动再套一层同名标识目录，避免把 `data/`、`cache/` 摊在用户选中的文件夹里。
+内置数据目录在 `%APPDATA%/report-editor`；用户添加的目录下会自动再套一层同名标识目录，避免把 `data/`、`cache/` 摊在用户选中的文件夹里。
 
 ## 文件格式
 
@@ -102,3 +114,7 @@ pnpm tauri build   # 打安装包，产物在 src-tauri/target/release/bundle/
 | 画布 | Fabric.js 7 |
 | UI | Tailwind CSS 4 · shadcn · Base UI · lucide-react |
 | 测试 | Vitest |
+
+## 更新日志
+
+见 [CHANGELOG.md](CHANGELOG.md)。

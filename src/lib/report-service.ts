@@ -76,7 +76,7 @@ export async function listReportsInAllDirs(): Promise<ReportSummary[]> {
  * 选择数据目录（系统文件夹对话框）。
  *
  * 用户选的是"外层文件夹"，真正的数据根是它下面的**应用标识目录**
- * （`com.admin.tauri-app-template`）：这样同一个文件夹可以放多个应用的数据，
+ * （`report-editor`）：这样同一个文件夹可以放多个应用的数据，
  * 也避免把 data/、cache/ 直接摊在用户选中的目录里。
  */
 export async function pickDataDirectory(): Promise<string | null> {
