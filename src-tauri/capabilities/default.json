@@ -11,6 +11,7 @@
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
     "dialog:allow-open",
+    "dialog:allow-save",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [

@@ -1,6 +1,8 @@
 import { ToolsBtn } from "./tools-btn";
 import { ElementBtn } from "./element-btn";
+import { ExportBtn } from "./export-btn";
 import { HistoryBtn } from "./history-btn";
+import { InsertImageBtn } from "./insert-image-btn";
 import { ProjectBtn } from "./project-btn";
 
 /**
@@ -10,8 +12,10 @@ import { ProjectBtn } from "./project-btn";
 export function Header() {
   return (
     <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border bg-chrome px-3">
-      <div className="flex min-w-0 items-center justify-start">
+      <div className="flex min-w-0 items-center justify-start gap-1">
         <ToolsBtn />
+        <InsertImageBtn />
+        <ExportBtn />
       </div>
       <div className="flex items-center justify-center gap-1">
         <HistoryBtn />
