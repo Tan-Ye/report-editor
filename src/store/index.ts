@@ -5,6 +5,7 @@
  * 内部也经这个文件引会形成「index → 模块 → index」的循环。
  */
 export * from "./coordination";
+export * from "./data-dirs";
 export * from "./element";
 export * from "./history";
 export * from "./page";

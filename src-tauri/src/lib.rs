@@ -229,6 +229,48 @@ fn storage_copy_files(root: String, from: String, to: String) -> Result<(), Stri
     Ok(())
 }
 
+/// 递归复制目录（跨盘迁移时 rename 会失败，用它兜底）
+fn copy_dir_all(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("创建目录失败：{e}"))?;
+    for entry in std::fs::read_dir(from).map_err(|e| format!("列目录失败：{e}"))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let target = to.join(entry.file_name());
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target).map_err(|e| format!("复制文件失败：{e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// 把一份报告目录从一个数据目录搬到另一个数据目录（跨盘自动退化成复制+删除）
+#[tauri::command]
+fn storage_move_dir(
+    from_root: String,
+    from: String,
+    to_root: String,
+    to: String,
+) -> Result<(), String> {
+    let source = resolve_path(&from_root, &from)?;
+    let target = resolve_path(&to_root, &to)?;
+    if !source.exists() {
+        return Err("要迁移的报告目录不存在".into());
+    }
+    if target.exists() {
+        return Err("目标目录里已经有同名报告".into());
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;
+    }
+    if std::fs::rename(&source, &target).is_ok() {
+        return Ok(());
+    }
+    copy_dir_all(&source, &target)?;
+    std::fs::remove_dir_all(&source).map_err(|e| format!("删除原目录失败：{e}"))?;
+    Ok(())
+}
+
 /// 标准 base64 编码（自带，省一个依赖）
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -299,6 +341,7 @@ pub fn run() {
             storage_remove_file,
             storage_mtime,
             storage_copy_files,
+            storage_move_dir,
             read_media_data_url,
         ])
         .run(tauri::generate_context!())

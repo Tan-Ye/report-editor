@@ -66,6 +66,24 @@ export async function writeJsonAtomically(
 	await call("storage_write_text", { root, relative: relativePath, content });
 }
 
+/**
+ * 把一份报告目录从一个数据目录搬到另一个数据目录。
+ * 跨盘时 rename 会失败，Rust 侧会自动退化成「递归复制 + 删除原目录」。
+ */
+export async function moveReportDir(
+	fromRoot: string,
+	fromRelative: string,
+	toRoot: string,
+	toRelative: string,
+): Promise<void> {
+	await invoke("storage_move_dir", {
+		fromRoot,
+		from: fromRelative,
+		toRoot,
+		to: toRelative,
+	});
+}
+
 /** 按相对路径读文本 */
 export async function readText(root: string, relativePath: string): Promise<string> {
 	return call<string>("storage_read_text", { root, relative: relativePath });

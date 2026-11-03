@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react";
-import { FolderOpen } from "lucide-react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { FolderOpen, Plus, Star, Trash2 } from "lucide-react";
+import { getIdentifier } from "@tauri-apps/api/app";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import {
 	Drawer,
 	DrawerContent,
@@ -9,7 +18,22 @@ import {
 	DrawerTitle,
 	DrawerTrigger,
 } from "@/components/ui/drawer";
-import { listSavedReports, openReport, type ReportSummary } from "@/lib/report-service";
+import { Separator } from "@/components/ui/separator";
+import {
+	addDataDir,
+	listReportsInAllDirs,
+	moveCurrentReportTo,
+	openReport,
+	pickDataDirectory,
+	removeDataDir,
+	setDefaultDataDir,
+	type ReportSummary,
+} from "@/lib/report-service";
+import { isSamePath } from "@/lib/utils";
+import { dataDirsStore, reportStore, saveStateStore } from "@/store";
+
+const subscribeDirs = (onStoreChange: () => void) => dataDirsStore.subscribe(onStoreChange);
+const getDirsSnapshot = () => dataDirsStore.getSnapshot();
 
 function formatTime(updatedAt: number | null) {
 	if (!updatedAt) {
@@ -19,44 +43,96 @@ function formatTime(updatedAt: number | null) {
 }
 
 /**
- * 打开报告抽屉：扫描数据目录下的 report.json。
+ * 目录的显示名：内置目录给个中文名，其它取最后一段路径。
+ * 自定义目录的末段是应用标识目录（添加时自动套的那层），所以再往上取一级，
+ * 不然几个目录会显示成同一个名字。
+ */
+function dirLabel(path: string, builtin: boolean, identifier: string): string {
+	if (builtin) {
+		return "应用数据目录";
+	}
+	const parts = path.split(/[\\/]/).filter(Boolean);
+	const last = parts.pop() ?? path;
+	if (identifier && last.toLowerCase() === identifier.toLowerCase() && parts.length > 0) {
+		return parts[parts.length - 1] ?? last;
+	}
+	return last;
+}
+
+/**
+ * 打开报告抽屉：扫描**所有数据目录**下的 report.json。
  * 不维护索引文件 —— 目录本身就是数据源，删了文件列表自然就少了。
  */
 export function OpenReportDrawer() {
 	const [open, setOpen] = useState(false);
 	const [reports, setReports] = useState<ReportSummary[]>([]);
 	const [loading, setLoading] = useState(false);
+	/** 待确认的"设为默认"目标目录：有值就弹迁移确认 */
+	const [pendingDefault, setPendingDefault] = useState<string | null>(null);
+	/** 应用标识（com.xxx.yyy）：显示目录名时要跳过这层 */
+	const [identifier, setIdentifier] = useState("");
+	const dirs = useSyncExternalStore(subscribeDirs, getDirsSnapshot);
 
+	useEffect(() => {
+		void getIdentifier().then(setIdentifier).catch(() => setIdentifier(""));
+	}, []);
+
+	const refresh = useCallback(async () => {
+		setLoading(true);
+		try {
+			setReports(await listReportsInAllDirs());
+		} catch {
+			setReports([]);
+		} finally {
+			setLoading(false);
+		}
+	}, []);
+
+	// 打开抽屉时、以及目录列表变化后都重新扫一遍
 	useEffect(() => {
 		if (!open) {
 			return;
 		}
-		let cancelled = false;
-		setLoading(true);
-		void listSavedReports()
-			.then((list) => {
-				if (!cancelled) {
-					setReports(list);
-				}
-			})
-			.catch(() => {
-				if (!cancelled) {
-					setReports([]);
-				}
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setLoading(false);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [open]);
+		void refresh();
+	}, [open, dirs, refresh]);
 
 	const handleOpen = (folder: string, root: string) => {
 		setOpen(false);
 		void openReport(folder, { root });
+	};
+
+	const handleAddDir = async () => {
+		const selected = await pickDataDirectory();
+		if (selected) {
+			await addDataDir(selected);
+		}
+	};
+
+	/**
+	 * 设为默认。
+	 * 当前报告已经保存过、且不在目标目录里时，先问一句要不要一起迁移 ——
+	 * 不迁移也可以，之后保存仍然写回它原来那个目录。
+	 */
+	const handleSetDefault = (path: string) => {
+		const persisted = saveStateStore.getState().persisted;
+		const currentRoot = reportStore.rootPath;
+		if (!persisted || !currentRoot || isSamePath(currentRoot, path)) {
+			void setDefaultDataDir(path);
+			return;
+		}
+		setPendingDefault(path);
+	};
+
+	const finishSetDefault = async (migrate: boolean) => {
+		const target = pendingDefault;
+		setPendingDefault(null);
+		if (!target) {
+			return;
+		}
+		if (migrate) {
+			await moveCurrentReportTo(target);
+		}
+		await setDefaultDataDir(target);
 	};
 
 	return (
@@ -78,7 +154,7 @@ export function OpenReportDrawer() {
 			<DrawerContent>
 				<DrawerHeader>
 					<DrawerTitle>打开报告</DrawerTitle>
-					<DrawerDescription>数据目录里已保存的报告</DrawerDescription>
+					<DrawerDescription>所有数据目录里已保存的报告</DrawerDescription>
 				</DrawerHeader>
 
 				<div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
@@ -89,24 +165,142 @@ export function OpenReportDrawer() {
 					)}
 
 					<div className="flex flex-col gap-1">
-						{reports.map((report) => (
-							<button
-								key={report.reportId}
-								type="button"
-								onClick={() => handleOpen(report.folder, report.root)}
-								className="flex w-full flex-col gap-0.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent"
-							>
-								<span className="truncate text-sm font-medium text-foreground">
-									{report.reportName || "未命名报告"}
-								</span>
-								<span className="truncate text-xs text-muted-foreground">
-									{formatTime(report.updatedAt)}
-								</span>
-							</button>
-						))}
+						{reports.map((report) => {
+							const dir = dirs.dirs.find((item) => item.path === report.root);
+							return (
+								<button
+									key={`${report.root}-${report.reportId}`}
+									type="button"
+									onClick={() => handleOpen(report.folder, report.root)}
+									className="flex w-full flex-col gap-0.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent"
+								>
+									<span className="flex items-center gap-1.5">
+										<span className="truncate text-sm font-medium text-foreground">
+											{report.reportName || "未命名报告"}
+										</span>
+										{report.root === dirs.defaultPath && (
+											<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
+												默认目录
+											</span>
+										)}
+									</span>
+									<span className="truncate text-xs text-muted-foreground">
+										{dirLabel(report.root, dir?.builtin ?? false, identifier)} · {formatTime(report.updatedAt)}
+									</span>
+								</button>
+							);
+						})}
+					</div>
+
+					<Separator className="my-4" />
+
+					<div className="flex items-center justify-between">
+						<h3 className="text-xs font-medium text-muted-foreground">数据目录</h3>
+						<Button
+							type="button"
+							variant="ghost"
+							size="xs"
+							onClick={() => void handleAddDir()}
+							title="会在这个文件夹下创建应用专属子目录"
+							className="text-muted-foreground hover:text-foreground"
+						>
+							<Plus className="size-3" />
+							添加目录
+						</Button>
+					</div>
+
+					<div className="mt-2 flex flex-col gap-1">
+						{dirs.dirs.map((dir) => {
+							const isDefault = dir.path === dirs.defaultPath;
+							return (
+								<div
+									key={dir.path}
+									className="flex items-center gap-2 rounded-lg border border-border/70 px-2.5 py-1.5"
+								>
+									<div className="flex min-w-0 flex-1 flex-col">
+										<span className="flex items-center gap-1.5">
+											<span className="truncate text-xs font-medium text-foreground">
+												{dirLabel(dir.path, dir.builtin, identifier)}
+											</span>
+											{isDefault && <Star className="size-3 shrink-0 text-primary" />}
+										</span>
+										<span
+											className="truncate text-xs text-muted-foreground"
+											title={dir.path}
+										>
+											{dir.path}
+										</span>
+									</div>
+
+									{!isDefault && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="xs"
+											onClick={() => handleSetDefault(dir.path)}
+											className="shrink-0 text-muted-foreground hover:text-foreground"
+										>
+											设为默认
+										</Button>
+									)}
+									{!dir.builtin && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-xs"
+											aria-label="移除目录"
+											title="从列表移除（磁盘文件不动）"
+											onClick={() => void removeDataDir(dir.path)}
+											className="shrink-0 text-muted-foreground hover:text-destructive"
+										>
+											<Trash2 className="size-3" />
+										</Button>
+									)}
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			</DrawerContent>
+
+			{/* 切换默认目录时的迁移确认：不迁移也允许，报告继续留在原目录 */}
+			<Dialog
+				open={pendingDefault !== null}
+				onOpenChange={(next) => {
+					if (!next) {
+						setPendingDefault(null);
+					}
+				}}
+			>
+				<DialogContent className="w-96">
+					<DialogHeader>
+						<DialogTitle>迁移当前报告？</DialogTitle>
+						<DialogDescription>
+							当前报告保存在「
+							{dirLabel(reportStore.rootPath ?? "", false, identifier)}
+							」，要把它一起迁到新的默认目录「
+							{pendingDefault ? dirLabel(pendingDefault, false, identifier) : ""}
+							」吗？
+						</DialogDescription>
+					</DialogHeader>
+
+					<DialogFooter>
+						<Button type="button" variant="ghost" onClick={() => setPendingDefault(null)}>
+							取消
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => void finishSetDefault(false)}
+						>
+							不迁移，仍在当前目录保存
+						</Button>
+						<Button type="button" onClick={() => void finishSetDefault(true)}>
+							迁移过去
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</Drawer>
 	);
 }
