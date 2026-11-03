@@ -1,5 +1,6 @@
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { baseHeight, baseWidth } from "@/base";
+import { cn } from "@/lib/utils";
 import { historyStore, pageStore, snapStore, viewportStore } from "@/store";
 import { GUIDE_STEP } from "./ruler";
 
@@ -28,8 +29,64 @@ export function GuideLayer() {
 	const snap = useSyncExternalStore(subscribeSnap, getSnapSnapshot);
 	const guides = pages.pages[pages.current]?.guides ?? [];
 	const [drag, setDrag] = useState<DragState | null>(null);
+	/** 选中的参考线：只有选中后才能按 Delete 删 */
+	const [selected, setSelected] = useState<number | null>(null);
 	/** 松手要用最新值，state 在事件回调里可能是旧的 */
 	const latestRef = useRef(0);
+
+	/** 增删参考线后序号会错位，直接清掉选中 */
+	useEffect(() => {
+		setSelected(null);
+	}, [guides.length]);
+
+	/** 点别处取消选中（覆盖层本身不吃事件，所以只能挂在 window 上） */
+	useEffect(() => {
+		if (selected === null) {
+			return;
+		}
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest("[data-guide]")) {
+				return;
+			}
+			setSelected(null);
+		};
+		window.addEventListener("pointerdown", handlePointerDown, true);
+		return () => {
+			window.removeEventListener("pointerdown", handlePointerDown, true);
+		};
+	}, [selected]);
+
+	/** 选中参考线后按 Delete/Backspace 删除 */
+	useEffect(() => {
+		if (selected === null) {
+			return;
+		}
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Delete" && event.key !== "Backspace") {
+				return;
+			}
+			// 正在输入框里打字时不抢删除键
+			const active = document.activeElement;
+			if (
+				active instanceof HTMLInputElement ||
+				active instanceof HTMLTextAreaElement ||
+				(active instanceof HTMLElement && active.isContentEditable)
+			) {
+				return;
+			}
+			event.preventDefault();
+			// 捕获阶段拦下，别让画布把选中的元素也一起删了
+			event.stopPropagation();
+			pageStore.setCurrentPageGuides(guides.filter((_, index) => index !== selected));
+			historyStore.commit();
+			setSelected(null);
+		};
+		window.addEventListener("keydown", handleKeyDown, true);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown, true);
+		};
+	}, [selected, guides]);
 
 	const screenOf = (value: number, axis: "x" | "y") =>
 		(axis === "x" ? viewport.tx : viewport.ty) + value * viewport.scale;
@@ -37,6 +94,7 @@ export function GuideLayer() {
 	const startDrag = (index: number, axis: "x" | "y") => (event: React.PointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
+		setSelected(index);
 		const rect = event.currentTarget.parentElement?.getBoundingClientRect();
 		if (!rect) {
 			return;
@@ -44,8 +102,9 @@ export function GuideLayer() {
 		const element = event.currentTarget;
 		element.setPointerCapture(event.pointerId);
 
-		latestRef.current = guides[index]?.position ?? 0;
-		setDrag({ index, axis, position: latestRef.current });
+		const original = guides[index]?.position ?? 0;
+		latestRef.current = original;
+		setDrag({ index, axis, position: original });
 
 		const move = (moveEvent: PointerEvent) => {
 			const scene = viewportStore.toScene(moveEvent.clientX, moveEvent.clientY, rect);
@@ -61,12 +120,18 @@ export function GuideLayer() {
 			element.removeEventListener("pointercancel", finish);
 			setDrag(null);
 
-			const limit = axis === "x" ? baseWidth : baseHeight;
-			const next = guides.filter((_, i) => i !== index);
-			// 拖到页面范围外＝删除（等价于把它拖回刻度条）
-			if (latestRef.current >= 0 && latestRef.current <= limit) {
-				next.push({ axis, position: latestRef.current });
+			// 只是点了一下没拖动：保留选中，不记一步历史
+			if (latestRef.current === original) {
+				return;
 			}
+
+			const limit = axis === "x" ? baseWidth : baseHeight;
+			const moved = latestRef.current >= 0 && latestRef.current <= limit;
+			// 原地替换而不是「先过滤再 push」：后者会把被拖的线挪到数组末尾，
+			// 序号一变，选中高亮就跑到别的参考线上去了
+			const next = moved
+				? guides.map((item, i) => (i === index ? { axis, position: latestRef.current } : item))
+				: guides.filter((_, i) => i !== index);
 			pageStore.setCurrentPageGuides(next);
 			historyStore.commit();
 		};
@@ -80,6 +145,7 @@ export function GuideLayer() {
 		<div className="pointer-events-none absolute inset-0">
 			{guides.map((guide, index) => {
 				const dragging = drag?.index === index;
+				const isSelected = selected === index;
 				const position = screenOf(dragging ? drag.position : guide.position, guide.axis);
 				const vertical = guide.axis === "x";
 				return (
@@ -87,6 +153,9 @@ export function GuideLayer() {
 						// 参考线没有 id，用方向 + 序号当 key；删除时列表会重排，但没有跨项状态
 						key={`${guide.axis}-${index}`}
 						role="presentation"
+						// 点别处取消选中时靠它判断"点的是不是参考线"
+						data-guide={index}
+						aria-label="参考线（选中后按 Delete 删除）"
 						onPointerDown={startDrag(index, guide.axis)}
 						className="pointer-events-auto absolute"
 						style={
@@ -98,8 +167,14 @@ export function GuideLayer() {
 						<div
 							className={
 								vertical
-									? "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-primary/60"
-									: "absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-primary/60"
+									? cn(
+											"absolute inset-y-0 left-1/2 w-px -translate-x-1/2",
+											isSelected ? "w-0.5 bg-primary" : "bg-primary/60",
+										)
+									: cn(
+											"absolute inset-x-0 top-1/2 h-px -translate-y-1/2",
+											isSelected ? "h-0.5 bg-primary" : "bg-primary/60",
+										)
 							}
 						/>
 					</div>
