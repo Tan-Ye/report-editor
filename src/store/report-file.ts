@@ -182,16 +182,24 @@ export function parseReportFile(raw: unknown): ParseResult {
 		warnings.push("文件缺少 version 字段，按当前版本处理");
 	}
 
+	const pageCount = Array.isArray(raw.pages) ? raw.pages.length : 0;
 	const rawPages: unknown[] = Array.isArray(raw.pages) ? raw.pages : [];
-	if (!Array.isArray(raw.pages) || rawPages.length === 0) {
+	if (!Array.isArray(raw.pages) || pageCount === 0) {
 		warnings.push("文件里没有页面，已补一个空页");
 	}
 	const pages = rawPages.length > 0 ? rawPages.map((item) => parsePage(item, warnings)) : [createPage()];
 
+	// reportId 是报告的身份：没有它就找不到已有目录，每次保存都会新建一份
+	let reportId = typeof raw.reportId === "string" ? raw.reportId.trim() : "";
+	if (!reportId) {
+		reportId = createUniqueId("report");
+		warnings.push("缺少 reportId，已重新生成");
+	}
+
 	return {
 		file: {
 			version,
-			reportId: typeof raw.reportId === "string" ? raw.reportId : "",
+			reportId,
 			reportName: typeof raw.reportName === "string" ? raw.reportName : "",
 			pageWidth: typeof raw.pageWidth === "number" ? raw.pageWidth : baseWidth,
 			pageHeight: typeof raw.pageHeight === "number" ? raw.pageHeight : baseHeight,

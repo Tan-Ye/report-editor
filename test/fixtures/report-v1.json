@@ -1,0 +1,133 @@
+{
+	"version": 1,
+	"reportId": "report-fixture-v1",
+	"reportName": "测试报告 v1",
+	"pageWidth": 1920,
+	"pageHeight": 1080,
+	"pages": [
+		{
+			"pageId": "page-fixture-cover",
+			"pageName": "封面",
+			"style": {
+				"fill": {
+					"kind": "gradient",
+					"type": "linear",
+					"angle": 90,
+					"stops": [
+						{ "offset": 0, "color": "#ffffff", "alpha": 1 },
+						{ "offset": 1, "color": "#e2e8f0", "alpha": 1 }
+					]
+				}
+			},
+			"elements": [
+				{
+					"id": "el-fixture-title",
+					"elementType": "text",
+					"attrs": {
+						"left": 120,
+						"top": 96,
+						"width": 1200,
+						"height": 76,
+						"angle": 0,
+						"opacity": 1,
+						"fill": { "kind": "solid", "color": "#0f172a" },
+						"fontSize": 54,
+						"fontWeight": 600,
+						"text": "季度经营分析",
+						"lineHeight": 1.4
+					}
+				},
+				{
+					"id": "el-fixture-card",
+					"elementType": "rect",
+					"attrs": {
+						"left": 120,
+						"top": 240,
+						"width": 720,
+						"height": 420,
+						"angle": 0,
+						"opacity": 1,
+						"fill": { "kind": "solid", "color": "#ffffff" },
+						"stroke": "#cbd5e1",
+						"strokeWidth": 1,
+						"shadow": {
+							"color": "#0f172a",
+							"opacity": 0.18,
+							"blur": 18,
+							"offsetX": 0,
+							"offsetY": 6
+						}
+					}
+				},
+				{
+					"id": "el-fixture-photo",
+					"elementType": "image",
+					"attrs": {
+						"left": 900,
+						"top": 240,
+						"width": 480,
+						"height": 270,
+						"angle": 0,
+						"opacity": 1,
+						"fill": { "kind": "image", "source": "media/tiny.png", "fit": "cover" }
+					}
+				},
+				{
+					"id": "el-fixture-divider",
+					"elementType": "line-solid",
+					"attrs": {
+						"left": 120,
+						"top": 760,
+						"angle": 0,
+						"opacity": 1,
+						"length": 1600,
+						"stroke": "#475569",
+						"strokeWidth": 2
+					}
+				}
+			],
+			"guides": [
+				{ "axis": "x", "position": 120 },
+				{ "axis": "y", "position": 240 }
+			]
+		},
+		{
+			"pageId": "page-fixture-detail",
+			"pageName": "明细",
+			"elements": [
+				{
+					"id": "el-fixture-bubble",
+					"elementType": "ellipse",
+					"attrs": {
+						"left": 200,
+						"top": 200,
+						"width": 320,
+						"height": 220,
+						"angle": 0,
+						"opacity": 1,
+						"fill": { "kind": "solid", "color": "#2563eb" }
+					}
+				},
+				{
+					"id": "el-fixture-stroke",
+					"elementType": "brush",
+					"attrs": {
+						"left": 640,
+						"top": 520,
+						"width": 240,
+						"height": 120,
+						"angle": 0,
+						"opacity": 1,
+						"stroke": "#ef4444",
+						"strokeWidth": 6,
+						"path": [
+							["M", 640, 600],
+							["Q", 700, 520, 760, 600],
+							["T", 880, 600]
+						]
+					}
+				}
+			]
+		}
+	]
+}
