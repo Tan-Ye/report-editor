@@ -1,6 +1,6 @@
 import type { LineStyle, ShapeType } from "@/base/elements";
 
-export type ToolId = "select" | "rect" | "line" | "shape" | "text";
+export type ToolId = "select" | "rect" | "line" | "shape" | "text" | "brush";
 
 export interface ToolState {
 	/** 当前工具 */

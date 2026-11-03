@@ -1,11 +1,13 @@
 import { useCallback, useEffect } from "react";
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
+import { IMAGE_ELEMENT_TYPE } from "@/base/elements";
 import { getAlignOffset, unionBounds, type AlignDirection } from "@/lib/align";
 import {
 	applyGeometryPatch,
 	applyStylePatch,
 	assignProps,
+	createElementFromInfo,
 	getElementDefinition,
 	isElementLocked,
 	readElementInfo,
@@ -21,11 +23,13 @@ import {
 } from "@/lib/emitter";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { setMediaImageListener } from "@/lib/media";
+import { createUniqueId } from "@/lib/utils";
 import {
 	coordination,
 	elementObjectMap,
 	historyStore,
 	pageStore,
+	toolStore,
 	type ElementInfo,
 	type FillSpec,
 } from "@/store";
@@ -212,6 +216,51 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 		}
 
 		/**
+		 * 插入图片元素。
+		 *
+		 * 尺寸**按原始像素 1:1**，只有比页面还大的图才等比缩到页面内 ——
+		 * 元素宽高要和文件分辨率对得上，否则用户没法判断自己放的图是不是被压缩过。
+		 * 走 `createElementFromInfo` 而不是手搓 fabric 对象：登记、描边、填充都复用同一套。
+		 */
+		function insertImageElement(fill: FillSpec, naturalWidth: number, naturalHeight: number) {
+			// 原图比页面大才缩，等比缩放保证不裁切、不变形
+			const scale = Math.min(
+				1,
+				baseWidth / Math.max(naturalWidth, 1),
+				baseHeight / Math.max(naturalHeight, 1),
+			);
+			const width = Math.round(naturalWidth * scale);
+			const height = Math.round(naturalHeight * scale);
+
+			const info: ElementInfo = {
+				id: createUniqueId("element"),
+				elementType: IMAGE_ELEMENT_TYPE,
+				attrs: {
+					left: Math.round((baseWidth - width) / 2),
+					top: Math.round((baseHeight - height) / 2),
+					width,
+					height,
+					angle: 0,
+					opacity: 1,
+					fill,
+				},
+			};
+
+			const object = createElementFromInfo(info);
+			if (!object) {
+				return;
+			}
+			canvas.add(object);
+			pageStore.addElementToCurrentPage(info);
+			canvas.setActiveObject(object);
+			// 插图片是"一次性动作"，顺手回到选择态，免得还停在某个绘制工具上
+			toolStore.setTool("select");
+			syncSelection();
+			canvas.requestRenderAll();
+			historyStore.commit();
+		}
+
+		/**
 		 * 点空白选背景。
 		 *
 		 * 白页对象本身是 evented:false / selectable:false —— 让它可点选会带来两个副作用：
@@ -223,7 +272,8 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		function handlePageMouseDown(opt: { target?: unknown; e: Event }) {
 			pageClickStart = null;
-			if (!page || opt.target) {
+			// 画笔模式下拖笔不该顺带选中背景
+			if (!page || opt.target || toolStore.getActiveTool() === "brush") {
 				return;
 			}
 			const point = canvas.getScenePoint(opt.e as unknown as MouseEvent);
@@ -312,6 +362,10 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 			}
 			if (payload?.type === "update-page-background") {
 				updatePageBackground(payload.paint, payload.commit ?? true);
+				return;
+			}
+			if (payload?.type === "insert-image") {
+				insertImageElement(payload.fill, payload.width, payload.height);
 			}
 		});
 

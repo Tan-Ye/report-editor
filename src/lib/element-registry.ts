@@ -5,6 +5,7 @@ import {
 	pageStore,
 	type ElementAttrs,
 	type ElementInfo,
+	type ElementShadow,
 	type ElementType,
 } from "@/store";
 import {
@@ -14,7 +15,7 @@ import {
 	type ElementGeometry,
 } from "./element-definitions";
 import type { ElementGeometryPatch, ElementStylePatch } from "./emitter";
-import { toFabricPaint } from "./fill";
+import { applyAlpha, toFabricPaint } from "./fill";
 
 export { toFabricPaint } from "./fill";
 
@@ -204,6 +205,16 @@ export function applyStylePatch(
 		stored.textAlign = patch.textAlign;
 		props.textAlign = patch.textAlign;
 	}
+	// 阴影对任何元素都适用，不走 props 白名单（它和锁定一样是元素级样式）
+	if (patch.shadow !== undefined) {
+		if (patch.shadow) {
+			stored.shadow = patch.shadow;
+			props.shadow = toFabricShadow(patch.shadow);
+		} else {
+			// null 表示移除阴影；赋 null 才能真清掉，赋 undefined 不会
+			props.shadow = null;
+		}
+	}
 
 	// 字号/字体都在 fabric 的排版属性里，set 会自己触发重排，不用手动 initDimensions
 	assignProps(object, props);
@@ -229,10 +240,43 @@ export function assignProps(object: fabric.FabricObject, props: Record<string, u
  * 顺序有讲究：几何先落，填充后落 —— 渐变的坐标是按对象当前尺寸算的，
  * 尺寸还没设好就填色会算到旧尺寸上。
  */
-export function applyElementAttrs(object: fabric.FabricObject, attrs: ElementAttrs): void {
-	const { fill, ...rest } = attrs;
+export function applyElementAttrs(
+	object: fabric.FabricObject,
+	attrs: ElementAttrs,
+	definition?: ElementDefinition,
+): void {
+	const { fill, shadow, ...rest } = attrs;
+	// 几何写死在路径里的元素（画笔）：尺寸靠 scale 还原，
+	// 不能再把存下来的宽高盖到对象上，否则 fabric 会按「宽 × scale」算出双重缩放的包围盒
+	if (definition?.sizeMode === "scale") {
+		delete rest.width;
+		delete rest.height;
+	}
 	assignProps(object, rest);
 	refreshFill(object, fill);
+	applyShadow(object, shadow);
+}
+
+/**
+ * 把阴影规格变成 fabric.Shadow。
+ *
+ * 存的是意图（颜色/透明度/模糊/偏移），fabric 的实例只存在于对象上，**永不回读**成数据 ——
+ * 和填充、描边同一个原则，否则 JSON 里会混进 fabric 的内部结构。
+ */
+function toFabricShadow(spec: ElementShadow | undefined): fabric.Shadow | null {
+	if (!spec) {
+		return null;
+	}
+	return new fabric.Shadow({
+		color: applyAlpha(spec.color, spec.opacity),
+		blur: spec.blur,
+		offsetX: spec.offsetX,
+		offsetY: spec.offsetY,
+	});
+}
+
+export function applyShadow(object: fabric.FabricObject, spec: ElementShadow | undefined): void {
+	assignProps(object, { shadow: toFabricShadow(spec) });
 }
 
 /** 按对象当前尺寸重算填充。尺寸一变就要调一次（渐变坐标、图片 fit 都依赖它） */
@@ -309,8 +353,8 @@ export function buildElementObject(info: ElementInfo): fabric.FabricObject | nul
 	if (!definition) {
 		return null;
 	}
-	const object = definition.build(boxFromAttrs(definition.geometry, info.attrs));
-	applyElementAttrs(object, info.attrs);
+	const object = definition.build(boxFromAttrs(definition.geometry, info.attrs), info.attrs);
+	applyElementAttrs(object, info.attrs, definition);
 	// 锁定状态要还原成「不可选中」，只把 locked 写回去是不够的
 	applyElementLock(object, info.attrs.locked === true);
 	return object;

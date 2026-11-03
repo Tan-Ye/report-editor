@@ -11,6 +11,12 @@ interface NumberFieldProps {
 	/** 数值后缀，例如角度的「°」 */
 	suffix?: string;
 	onCommit: (value: number) => void;
+	/**
+	 * 每次敲入合法数值就回调一次（不经过失焦）。
+	 * 给「改了就要立刻生效」的场景用，比如画笔：改完粗细马上落笔，
+	 * 如果只等失焦，第一笔用的还是旧值。
+	 */
+	onInput?: (value: number) => void;
 }
 
 /**
@@ -18,7 +24,14 @@ interface NumberFieldProps {
  * 编辑过程中不跟随外部值 —— 否则拖动元素时正在输入的内容会被冲掉；
  * 失焦或回车才提交，Esc 放弃本次输入。
  */
-export function NumberField({ label, value, disabled, suffix, onCommit }: NumberFieldProps) {
+export function NumberField({
+	label,
+	value,
+	disabled,
+	suffix,
+	onCommit,
+	onInput,
+}: NumberFieldProps) {
 	const inputId = useId();
 	const [draft, setDraft] = useState(() => formatNumber(value));
 	const [editing, setEditing] = useState(false);
@@ -64,7 +77,16 @@ export function NumberField({ label, value, disabled, suffix, onCommit }: Number
 					disabled={disabled}
 					inputMode="decimal"
 					className="h-7 px-1.5 text-xs tabular-nums"
-					onChange={(event) => setDraft(event.target.value)}
+					onChange={(event) => {
+						const text = event.target.value;
+						setDraft(text);
+						if (onInput) {
+							const parsed = Number.parseFloat(text);
+							if (Number.isFinite(parsed)) {
+								onInput(Math.round(parsed * 10) / 10);
+							}
+						}
+					}}
 					onFocus={() => setEditing(true)}
 					onBlur={() => {
 						setEditing(false);

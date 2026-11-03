@@ -1,4 +1,4 @@
-import type { FillSpec } from "@/store";
+import type { ElementShadow, FillSpec } from "@/store";
 import type { AlignDirection } from "./align";
 
 // 订阅事件常量集
@@ -38,6 +38,8 @@ export interface ElementStylePatch {
 	fontFamily?: string;
 	textAlign?: string;
 	lineHeight?: number;
+	/** 阴影；null 表示移除 */
+	shadow?: ElementShadow | null;
 }
 
 /** 元素命令载荷：对齐、按属性面板改几何 / 改外观 / 改页面背景 */
@@ -57,7 +59,9 @@ export type ElementCommandPayload =
 			/** 是否记一步历史：拖动取色器时先置 false，松手后再统一提交 */
 			commit?: boolean;
 	  }
-	| { type: "update-page-background"; paint: FillSpec | undefined; commit?: boolean };
+	| { type: "update-page-background"; paint: FillSpec | undefined; commit?: boolean }
+	/** 插入图片元素：fill 里已经带着导入好的图片路径，width/height 是原始像素尺寸 */
+	| { type: "insert-image"; fill: FillSpec; width: number; height: number };
 
 type AnyListener = (args: unknown) => void;
 

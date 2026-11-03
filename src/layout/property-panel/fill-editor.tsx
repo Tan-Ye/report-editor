@@ -121,7 +121,7 @@ function describeFill(value: FillSpec | undefined): string {
  * 只听原生 `change`（取色器关闭时触发一次），不听 `input`：
  * 后者在拖动取色器时连续触发，会把撤销历史刷爆。
  */
-function ColorInput({
+export function ColorInput({
 	value,
 	disabled,
 	onCommit,

@@ -19,12 +19,12 @@ export async function pickImageFile(): Promise<string | null> {
 }
 
 /**
- * 导入一张图片并返回可直接写进 JSON 的填充规格。
+ * 让用户选一张图、复制进报告目录，返回可直接写进 JSON 的填充规格。
  *
  * 复制交给 Rust（`import_media`）：用户选的图片在 APPDATA 之外，fs 插件没有那个 scope；
  * 顺便在 Rust 里按内容算 hash 命名，天然的「同一张图只存一份」。
  */
-export async function importImageFill(): Promise<FillSpec | null> {
+async function importPickedImage(): Promise<FillSpec | null> {
 	const source = await pickImageFile();
 	if (!source) {
 		return null;
@@ -41,6 +41,36 @@ export async function importImageFill(): Promise<FillSpec | null> {
 		});
 		return null;
 	}
+}
+
+/** 给「填充」用：只要规格 */
+export function importImageFill(): Promise<FillSpec | null> {
+	return importPickedImage();
+}
+
+export interface ImportedImage {
+	fill: FillSpec;
+	/** 图片原始像素尺寸，用来决定插入元素的宽高比 */
+	width: number;
+	height: number;
+}
+
+/**
+ * 给「图片元素」用：除了规格还要原始尺寸。
+ * 顺便把图等进缓存 —— 插进画布的那一刻就能看见，不会先闪一下占位色。
+ */
+export async function importImageFile(): Promise<ImportedImage | null> {
+	const fill = await importPickedImage();
+	if (!fill || fill.kind !== "image") {
+		return null;
+	}
+	await ensureMediaImages([fill.source]);
+	const image = getMediaImage(fill.source);
+	return {
+		fill,
+		width: image?.naturalWidth || 16,
+		height: image?.naturalHeight || 9,
+	};
 }
 
 /** 已解码的图片缓存：FillSpec 里存的是相对路径，运行时才换成真正的位图 */

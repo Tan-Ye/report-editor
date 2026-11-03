@@ -18,6 +18,24 @@ export { normalizeFill } from "./fill";
  *   JSON 是准的，fabric 只是渲染目标，**永不回读**。
  * 这样 `attrs.fill` 里存的始终是我们的 FillSpec，不会被 fabric 的 Gradient/Pattern 覆盖掉。
  */
+/**
+ * 元素阴影。
+ *
+ * 存的是「意图」而不是 fabric 的 Shadow 实例：color 用 rgba 字符串，
+ * 渲染时再按这几个值造一个 `fabric.Shadow`（和填充、描边一样，
+ * 对象上的东西永远不回读成数据）。
+ */
+export interface ElementShadow {
+	/** #rrggbb */
+	color: string;
+	/** 不透明度 0~1，和颜色分开存：<input type="color"> 不支持 alpha */
+	opacity: number;
+	/** 模糊半径 */
+	blur: number;
+	offsetX: number;
+	offsetY: number;
+}
+
 export type ElementAttrs = {
 	left?: number;
 	top?: number;
@@ -28,6 +46,8 @@ export type ElementAttrs = {
 	fill?: FillSpec;
 	stroke?: string;
 	strokeWidth?: number;
+	/** 阴影。没有这个字段就是不加阴影 */
+	shadow?: ElementShadow;
 	/** 业务扩展字段（数据绑定等），fabric 不认识也没关系 */
 	[key: string]: unknown;
 };

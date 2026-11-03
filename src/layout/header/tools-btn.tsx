@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 import { useKeyPress } from "ahooks";
-import { File, MousePointer2, Square, Type } from "lucide-react";
+import { Brush, MousePointer2, Square, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   LINE_STYLE_OPTIONS,
@@ -15,7 +15,7 @@ import { isEditableTarget } from "@/lib/dom";
 import { cn } from "@/lib/utils";
 import { ToolMenu } from "./tool-menu";
 
-const TOOL_SHORTCUTS = { v: "select", r: "rect", l: "line", o: "shape", t: "text" } as const;
+const TOOL_SHORTCUTS = { v: "select", r: "rect", l: "line", o: "shape", t: "text", b: "brush" } as const;
 
 type ShortcutKey = keyof typeof TOOL_SHORTCUTS;
 
@@ -140,10 +140,6 @@ export function ToolsBtn() {
       aria-label="绘图工具"
       className="flex items-center gap-0.5 rounded-lg border border-border/70 bg-background p-0.5"
     >
-      <ToolButton label="文件">
-        <File className="size-4" />
-      </ToolButton>
-      <span aria-hidden="true" className="mx-0.5 h-5 w-px shrink-0 bg-border" />
       <ToolButton
         label="选择工具 (V)"
         active={activeTool === "select"}
@@ -164,6 +160,13 @@ export function ToolsBtn() {
         onClick={() => selectTool("text")}
       >
         <Type className="size-4" />
+      </ToolButton>
+      <ToolButton
+        label="画笔工具 (B)"
+        active={activeTool === "brush"}
+        onClick={() => selectTool("brush")}
+      >
+        <Brush className="size-4" />
       </ToolButton>
 
       <ToolMenu

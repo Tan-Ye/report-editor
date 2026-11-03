@@ -1,5 +1,8 @@
 import * as fabric from "fabric";
 import {
+	BRUSH_ELEMENT_TYPE,
+	IMAGE_ELEMENT_TYPE,
+	IMAGE_PLACEHOLDER_FILL,
 	SHAPE_OPTIONS,
 	SHAPE_PATHS,
 	TEXT_BOX_WIDTH,
@@ -14,7 +17,7 @@ import {
 	type ShapeType,
 } from "@/base/elements";
 import { getReportPalette } from "@/lib/theme-tokens";
-import type { ElementType } from "@/store";
+import type { ElementAttrs, ElementType } from "@/store";
 
 /**
  * 元素几何类型：
@@ -52,8 +55,10 @@ export interface ElementDefinition {
 	/**
 	 * 从拖拽范围直接造一个对象。
 	 * 预览每帧都重建：如果改用「基准形状 + scaleX 拉伸」，虚线间距和箭头大小会跟着被拉伸变形。
+	 *
+	 * `attrs` 给那些几何写不进 box 的类型用（画笔：路径数据只能从 attrs 里拿）。
 	 */
-	build: (box: DragBox) => fabric.FabricObject;
+	build: (box: DragBox, attrs?: ElementAttrs) => fabric.FabricObject;
 	/** 持久化白名单，属性面板可编辑的字段也应来自这里 */
 	props: readonly string[];
 }
@@ -90,6 +95,19 @@ const SHAPE_PROPS = [
 	"strokeWidth",
 ] as const;
 
+/** 画笔：路径数据 + 线宽/颜色，几何靠缩放折算 */
+const BRUSH_PROPS = [
+	"left",
+	"top",
+	"width",
+	"height",
+	"angle",
+	"opacity",
+	"stroke",
+	"strokeWidth",
+	"path",
+] as const;
+
 const LINE_PROPS = [
 	"left",
 	"top",
@@ -116,6 +134,19 @@ const TEXT_PROPS = [
 	"lineHeight",
 	// 文本内容：不存这一项等于什么都没保存
 	"text",
+] as const;
+
+/** 图片元素：几何 + 填充（图片本身就在 fill 里）+ 描边（可以当边框用） */
+const IMAGE_PROPS = [
+	"left",
+	"top",
+	"width",
+	"height",
+	"angle",
+	"opacity",
+	"fill",
+	"stroke",
+	"strokeWidth",
 ] as const;
 
 /**
@@ -150,8 +181,26 @@ function buildRect(box: DragBox): fabric.FabricObject {
 		width: box.width,
 		height: box.height,
 		fill: palette.shapeFill,
-		stroke: palette.shapeStroke,
-		strokeWidth: SHAPE_STROKE_WIDTH,
+		// 新建元素默认不带边框：描边由属性面板按需加
+		strokeWidth: 0,
+		objectCaching: false,
+	});
+}
+
+/**
+ * 图片元素：先造一个带占位色的矩形，真正的图片由 `applyElementAttrs` 按 attrs.fill 铺上去
+ * （和矩形改填充走同一条路，所以换图、适应方式都不用另写逻辑）。
+ */
+function buildImage(box: DragBox): fabric.FabricObject {
+	return new fabric.Rect({
+		left: box.left,
+		top: box.top,
+		originX: "left",
+		originY: "top",
+		width: box.width,
+		height: box.height,
+		fill: IMAGE_PLACEHOLDER_FILL,
+		strokeWidth: 0,
 		objectCaching: false,
 	});
 }
@@ -212,12 +261,47 @@ function buildShape(type: ShapeType, box: DragBox): fabric.FabricObject {
 		originX: "left",
 		originY: "top",
 		fill: palette.shapeFill,
-		stroke: palette.shapeStroke,
-		strokeWidth: SHAPE_STROKE_WIDTH,
+		// 形状默认也不带边框，和矩形保持一致
+		strokeWidth: 0,
 		// 手动拉伸的当下还是走 scale，靠它把描边粗细钉住，直到松手折算成宽高
 		strokeUniform: true,
 		objectCaching: false,
 	});
+}
+
+/**
+ * 画笔痕迹。
+ *
+ * 路径数据是落笔时按场景坐标记下来的，所以这里只负责「按存的宽高缩放」，
+ * 不能像形状那样按 box 重新生成几何 —— 曲线的坐标是鼠标轨迹，生成不出来。
+ */
+function buildBrush(box: DragBox, attrs?: ElementAttrs): fabric.FabricObject {
+	const path = attrs?.path;
+	if (!Array.isArray(path) || path.length === 0) {
+		// 没有路径数据就画个空对象，至少不会崩
+		return new fabric.Path("M 0 0", { left: box.left, top: box.top, strokeWidth: 0 });
+	}
+	const object = new fabric.Path(path as never, {
+		left: box.left,
+		top: box.top,
+		originX: "left",
+		originY: "top",
+		fill: null,
+		strokeWidth: SHAPE_STROKE_WIDTH,
+		strokeLineCap: "round",
+		strokeLineJoin: "round",
+		objectCaching: false,
+	});
+	// 几何写死在路径里，靠 scale 还原存档时的宽高
+	const nativeWidth = object.width || 1;
+	const nativeHeight = object.height || 1;
+	if (box.width > 0) {
+		object.scaleX = box.width / nativeWidth;
+	}
+	if (box.height > 0) {
+		object.scaleY = box.height / nativeHeight;
+	}
+	return object;
 }
 
 interface StrokeStyle {
@@ -325,6 +409,19 @@ export const ELEMENT_DEFINITIONS: ElementDefinition[] = [
 		geometry: "size",
 		build: buildRect,
 		props: RECT_PROPS,
+	},
+	{
+		type: IMAGE_ELEMENT_TYPE,
+		geometry: "size",
+		build: buildImage,
+		props: IMAGE_PROPS,
+	},
+	{
+		type: BRUSH_ELEMENT_TYPE,
+		geometry: "size",
+		sizeMode: "scale",
+		build: buildBrush,
+		props: BRUSH_PROPS,
 	},
 	...SHAPE_OPTIONS.map(({ value }) => ({
 		type: value,

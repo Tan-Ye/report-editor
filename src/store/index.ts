@@ -4,6 +4,7 @@
  * store 内部互相 import 必须走相对路径（`./page`）——
  * 内部也经这个文件引会形成「index → 模块 → index」的循环。
  */
+export * from "./brush";
 export * from "./coordination";
 export * from "./data-dirs";
 export * from "./element";

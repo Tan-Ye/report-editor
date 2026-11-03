@@ -59,6 +59,22 @@ export const SHAPE_OPTIONS: ElementOption<ShapeType>[] = [
 /** 线条样式 → 元素类型 */
 export const lineStyleToElementType = (style: LineStyle) => `line-${style}`;
 
+/**
+ * 图片元素：整块就是一个图片框。
+ * 图片本身存在 `attrs.fill`（kind = "image"）里，和填充共用一套渲染/预载链路，
+ * 所以换图、适应方式、缩略图、预载都不用为它单独写一套。
+ */
+export const IMAGE_ELEMENT_TYPE = "image";
+/** 深色背景上的浅色占位，图还没加载出来时能看出这里有个图片框 */
+export const IMAGE_PLACEHOLDER_FILL = "rgba(15, 23, 42, 0.06)";
+
+/**
+ * 画笔元素：一次落笔 = 一条路径。
+ * 路径数据存在 `attrs.path`（fabric.Path 的 path 数组），
+ * 渲染时按宽高缩放，所以画笔痕迹也是普通元素，能选中、能移动、能删。
+ */
+export const BRUSH_ELEMENT_TYPE = "brush";
+
 /** 文本元素的默认排版参数 */
 export const TEXT_ELEMENT_TYPE = "text";
 /** 默认框宽 */
@@ -154,6 +170,12 @@ export function getElementTypeLabel(type: string): string {
 	}
 	if (type === "rect") {
 		return "矩形";
+	}
+	if (type === IMAGE_ELEMENT_TYPE) {
+		return "图片";
+	}
+	if (type === BRUSH_ELEMENT_TYPE) {
+		return "画笔";
 	}
 	const shape = SHAPE_OPTIONS.find((option) => option.value === type);
 	if (shape) {

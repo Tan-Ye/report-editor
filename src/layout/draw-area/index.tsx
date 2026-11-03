@@ -1,6 +1,7 @@
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { CanvasOverlay } from "./canvas-overlay";
 import { ElementContextMenu } from "./element-context-menu";
+import { useBrush } from "./use-brush";
 import { useCanvas, useCanvasTeardown } from "./use-canvas";
 import { useContextMenu } from "./use-context-menu";
 import { useDrawing } from "./use-drawing";
@@ -29,6 +30,8 @@ export function DrawArea() {
 	useSpacePan({ canvas, containerRef: boardContainer, panBy });
 	// 顶点吸附：拖动元素时靠近顶点/页面边角/参考线就贴上去
 	useSnapping(canvas);
+	// 画笔：切到画笔工具时打开自由绘制，落笔结束后把路径登记成普通元素
+	useBrush(canvas);
 	// 必须最后调用：React 按 hook 定义顺序执行清理，这样其它 hook 先摘掉监听、
 	// 结束绘制，最后才 dispose 画布
 	useCanvasTeardown(teardown);
