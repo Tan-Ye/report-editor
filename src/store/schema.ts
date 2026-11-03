@@ -1,7 +1,5 @@
-import { baseHeight, baseWidth } from "@/base";
-import { createUniqueId } from "@/lib/utils";
 import type { ElementInfo } from "./element";
-import { createPage, type PageInfo } from "./page";
+import type { PageInfo } from "./page";
 
 /** 文件格式版本：结构变化时递增，读取时用它决定要不要迁移 */
 export const REPORT_FILE_VERSION = 1;
@@ -29,16 +27,4 @@ export interface ReportFile {
 	pageHeight: number;
 	/** 数组顺序即页面顺序 */
 	pages: ReportPageFile[];
-}
-
-/** 新建报告时的文件内容：id 现生成，且至少带一页，与 pageStore 的「至少保留一页」保持一致 */
-export function createEmptyReportFile(): ReportFile {
-	return {
-		version: REPORT_FILE_VERSION,
-		reportId: createUniqueId("report"),
-		reportName: "",
-		pageWidth: baseWidth,
-		pageHeight: baseHeight,
-		pages: [createPage({ pageName: "页面 1" })],
-	};
 }

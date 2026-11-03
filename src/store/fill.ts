@@ -1,3 +1,11 @@
+/**
+ * 填充的文档模型 + 值规整。
+ *
+ * 类型和 `normalizeFill` 放在一起：解析要懂填充自己的历史格式
+ * （纯色字符串、旧版渐变坐标、fabric 至少两个色标），属于这个领域，
+ * 不是全局通用工具。fabric 转换在 `lib/fill.ts`。
+ */
+
 /** 图片填充的适应方式 */
 export type ImageFit = "cover" | "contain" | "tile" | "center" | "original";
 
