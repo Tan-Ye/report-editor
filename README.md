@@ -1,56 +1,104 @@
 # report-editor · 报表编辑器
 
-用 Tauri 2 + React 19 做的桌面端报表编辑器，画布基于 Fabric.js，UI 用 Tailwind CSS 4 + shadcn/Base UI。
+用 Tauri 2 + React 19 做的桌面端报表设计工具：1920×1080 多页画布，元素自由摆放，导出 PDF / 图片 / 长图 / 网页。
 
-**状态：早期骨架（最后一次提交 2026-09-18）**。已经完成四区布局、页面/元素的内存 store、Fabric 背景画布与缩放适配；元素编辑、属性面板、保存/导出、后端接口都还没实现。
+**状态：第一个可用版本（v0.1.0）**。核心编辑、保存、导出链路已经打通，表格、数据绑定、富文本尚未实现 —— 能力边界见文末「已知限制」。
+
+## 功能
+
+**画布与元素**
+
+- 多页 1920×1080 画布，页面缩略图侧栏，缩放（10%–400%）与空格拖拽平移
+- 元素类型：矩形、文本、图片、画笔，以及 10 种形状、7 种线条样式
+- 选中、移动、缩放、旋转（角度圆盘）、多选对齐、层级调整、锁定
+- 图片按原始像素插入，属性面板可一键还原原始尺寸
+- 画笔：自由绘制，落笔结束后成为**普通元素**（可选中、移动、删除、撤销）
+- 元素阴影：颜色 / 透明度 / 模糊 / 偏移
+
+**填充与样式**
+
+- 纯色、线性/径向渐变（最多 8 个色标，可调位置与透明度）、图片填充（覆盖 / 适应 / 平铺 / 居中 / 原始）
+- 主题色板 + 最近使用色（本地记忆，不进文档）
+- 文本字号、字重、字体、对齐、行高
+
+**精确定位**
+
+- 顶部/左侧坐标刻度，零点是绘制区域左上角，步长按缩放自适应
+- 参考线：点刻度创建（按 10 单位取整）、拖动移动、拖出删除、选中后按 Delete 删除
+- 顶点吸附：靠近其他元素顶点、页面边角、参考线时自动吸附（阈值随缩放补偿屏幕像素）
+
+**文件与导出**
+
+- 报告 = 一个目录：`report.json` + `media/`（按内容 hash 命名，天然去重）
+- 自动保存草稿（每 2 秒），异常退出后下次打开自动恢复
+- 保存前保留上一版 `report.json.bak`
+- 多数据目录（内置应用数据目录 + 用户自选目录），可设默认目录、支持迁移
+- 导出：PDF（每页一张满版图 + `report.json` 附件）、PNG / JPEG、长图、**HTML 包**（可翻页、全屏，是唯一能播视频的格式）
+
+**校验与测试**
+
+- `validateReportJson()` 结构化校验：`level` / `code` / `message` / `path`
+- 金标报告 `test/fixtures/report-v1.json` 作为格式基准与样例
+- 41 个纯函数单测（解析、填充、路径、序列化幂等）
+
+## 开发
+
+需要 Node 20+、pnpm、Rust，以及 Windows 上的 Tauri 依赖（WebView2、MSVC 工具链）。
+
+```bash
+pnpm install
+pnpm tauri dev     # 起桌面窗口（自动拉起 Vite）
+pnpm dev           # 只起前端 http://localhost:9527
+pnpm test          # 单测（vitest）
+pnpm tauri build   # 打安装包，产物在 src-tauri/target/release/bundle/
+```
+
+## 数据存放
+
+```
+<数据目录>/
+├── data/<报告名>-<id>/
+│   ├── report.json            # 文档内容（页面 / 元素 / 参考线）
+│   ├── report.json.bak        # 上一版备份
+│   ├── media/<内容hash>.<ext> # 图片等媒体，按内容去重
+│   └── preview/               # 导出/预览产物（可选）
+└── cache/<报告名>-<id>/
+    └── report.json            # 草稿：未保存的改动，保存成功后清掉
+```
+
+内置数据目录在 `%APPDATA%/com.admin.tauri-app-template`；用户添加的目录下会自动再套一层同名标识目录，避免把 `data/`、`cache/` 摊在用户选中的文件夹里。
+
+## 文件格式
+
+`report.json` 的结构见 `test/fixtures/README.md`（含字段速查、元素类型清单、`FillSpec` 三种形态）。
+改格式时**先改那份金标报告**，再看测试挂在哪条 —— 挂掉的那条就是这次改动破坏了什么。
+
+## 已知限制
+
+| 限制 | 说明 |
+|---|---|
+| PDF 是栅格 | 文字不可选中/搜索；需要矢量文字时得走 SVG 路线（未实现） |
+| 视频 | PDF/图片里只能当封面帧；要播放请导出 HTML 包（视频元素本身尚未实现） |
+| 没有表格 | 只能用矩形拼，交互（合并单元格、行高列宽）尚未设计 |
+| 没有数据绑定 | 模板 + 数据 → 批量生成的能力尚未实现 |
+| 没有富文本 | 文本只能整段改样式，不支持局部加粗/变色 |
+| 未签名 | Windows 可能弹「已保护你的电脑」或被策略拦截，需要手动放行 |
+
+## 路线图
+
+1. **富文本 / 图片裁剪** —— 文本分段样式、图片裁切框
+2. **表格元素** —— 合并单元格、行列拖拽、内容溢出策略
+3. **数据绑定** —— 数据源导入、字段映射、逐页渲染
+4. **接入 agent** —— 无头渲染 + 校验已经就绪（`lib/report-render.ts`、`lib/report-validate.ts`），
+   缺的是把能力暴露成工具（MCP / CLI），让模型能"生成 JSON → 渲染 → 自检"
+5. **矢量导出** —— fabric `toSVG` 路线，需先验证图片 Pattern 的保真度
 
 ## 技术栈
 
 | 层 | 技术 |
-| --- | --- |
+|---|---|
 | 桌面壳 | Tauri 2（Rust） |
 | 前端 | React 19 · TypeScript 5.8 · Vite 7 |
-| 画布 | Fabric.js 7（依赖里还列了 Konva，目前代码未使用） |
+| 画布 | Fabric.js 7 |
 | UI | Tailwind CSS 4 · shadcn · Base UI · lucide-react |
-| 工具 | ahooks · clsx · tailwind-merge |
-
-## 目录
-
-```
-report-editor/
-├── src/
-│   ├── layout/          # 顶栏、左侧页面栏、中间画布、右侧属性面板
-│   ├── store/           # report / page / element 三个单例 store（element 的基础类带订阅）
-│   ├── base/            # 画布尺寸等基础常量
-│   └── lib/             # 工具函数与事件总线
-├── src-tauri/           # Tauri 2 的 Rust 壳
-├── package.json
-└── vite.config.ts       # 开发端口固定 9527（strictPort）
-```
-
-## 开发
-
-需要 Node 20+、pnpm、Rust，以及 Tauri 2 在 Windows 上的系统依赖（WebView2、MSVC 工具链）。
-
-```bash
-pnpm install
-pnpm dev          # 只起前端，http://localhost:9527
-pnpm tauri dev    # 起桌面窗口，自动拉起 Vite
-pnpm build        # tsc + vite build
-pnpm tauri build  # 打包桌面应用
-```
-
-## 当前进度
-
-- [x] 四区布局：Header / Aside / DrawArea / PropertyPanel
-- [x] 报表、页面、元素的内存 store（element 的基础类带监听/订阅机制）
-- [x] Fabric 画布初始化、3000×3000 背景与缩放定位
-- [ ] 元素添加、选择、拖拽、属性编辑
-- [ ] 页面切换、增删与缩略图
-- [ ] 项目保存/打开，导出 PDF / 图片
-- [ ] 把模板名 `tauri-app-template` 改成 `report-editor`（`package.json`、`src-tauri/Cargo.toml`、`tauri.conf.json`、窗口标题）
-
-## 说明
-
-- 画布逻辑集中在 `src/layout/draw-area/index.tsx`，元素数据结构在 `src/store/element.ts`（`ElementInfo` 包了一个 `FabricObject`）。
-- 目前没有测试，也没有持久化；所有数据只存在内存里，刷新即丢。
+| 测试 | Vitest |
