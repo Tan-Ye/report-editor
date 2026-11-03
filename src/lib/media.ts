@@ -78,6 +78,19 @@ const imageCache = new Map<string, HTMLImageElement>();
 /** 正在加载的请求：同一个 source 只发一次，也用来让调用方 await */
 const loading = new Map<string, Promise<void>>();
 
+/**
+ * 媒体根目录覆盖。
+ *
+ * 平时图片从「当前打开的报告」里读；无头渲染要渲染**任意一份**报告，
+ * 不能依赖编辑器当前状态，所以先把它指到目标报告目录，渲染完再清掉。
+ * 文件名是按内容 hash 生成的，所以两份报告的 media 不会串。
+ */
+let mediaBase: { root: string; relative: string } | null = null;
+
+export function setMediaBase(base: { root: string; relative: string } | null): void {
+	mediaBase = base;
+}
+
 let onImageReady: () => void = () => {};
 
 /** 图片加载完成后通知画布重绘 + 重算填充（由 use-selection 注册） */
@@ -104,9 +117,14 @@ function notifyImageReady(): void {
 
 async function loadMediaImage(source: string): Promise<HTMLImageElement> {
 	// 图片可能是自定义目录里的文件，fs 插件读不到 —— 统一走 Rust 转成 data URL
-	const root = await getCurrentReportRoot();
-	const relative = `${await getCurrentReportRelativeDir()}/${source}`;
-	const dataUrl = await invoke<string>("read_media_data_url", { root, relative });
+	const base = mediaBase ?? {
+		root: await getCurrentReportRoot(),
+		relative: await getCurrentReportRelativeDir(),
+	};
+	const dataUrl = await invoke<string>("read_media_data_url", {
+		root: base.root,
+		relative: `${base.relative}/${source}`,
+	});
 	const image = new Image();
 	image.src = dataUrl;
 	await image.decode();

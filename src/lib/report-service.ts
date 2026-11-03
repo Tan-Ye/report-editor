@@ -9,7 +9,6 @@ import {
 	dataDirsStore,
 	historyStore,
 	pageStore,
-	parseReportFile,
 	reportStore,
 	saveStateStore,
 	toReportFile,
@@ -18,6 +17,7 @@ import {
 import { isSamePath } from "./utils";
 import { ensurePreferencesLoaded, savePreferencesNow } from "./ui-preferences";
 import { getReportFolderName, type ReportArea } from "./report-path";
+import { summarizeIssues, validateReportJson } from "./report-validate";
 import {
 	copyMediaDir,
 	ensureArea,
@@ -395,14 +395,19 @@ export async function openReport(
 	const root = options.root ?? (await getStorageRoot());
 	try {
 		const raw = await readReportJson(root, SAVED_AREA, folder);
-		const result = parseReportFile(JSON.parse(raw));
-		applyReportFile(result.file);
+		// 用校验入口而不是直接 parse：这样"未注册类型""版本过新"这类问题也能提示出来
+		const validation = validateReportJson(raw);
+		if (!validation.file) {
+			throw new Error(summarizeIssues(validation) || "报告内容无法解析");
+		}
+		const file = validation.file;
+		applyReportFile(file);
 		reportStore.setRootPath(root);
 
 		// 有比正式文件更新的草稿 = 上次是异常退出（或崩溃），把改动接回来
-		const draft = await readNewerDraft(root, result.file.reportId);
-		const restored = draft ? parseReportFile(JSON.parse(draft)) : null;
-		if (restored) {
+		const draft = await readNewerDraft(root, file.reportId);
+		const restored = draft ? validateReportJson(draft) : null;
+		if (restored?.file) {
 			applyReportFile(restored.file);
 			reportStore.setRootPath(root);
 		}
@@ -410,30 +415,30 @@ export async function openReport(
 		// 换了文档：历史清空，保存状态重置为"已保存且干净"
 		historyStore.reset();
 		saveStateStore.reset(true);
-		if (restored) {
+		if (restored?.file) {
 			// 草稿内容还没进正式文件：标脏，这样关窗口会提示、Ctrl+S 会覆盖写回
 			historyStore.commit();
 		}
 
 		// 只清这份报告自己的草稿：别人的草稿还要留着下次恢复
-		if (result.file.reportId) {
-			await removeDraftFolder(root, result.file.reportId);
+		if (file.reportId) {
+			await removeDraftFolder(root, file.reportId);
 		}
 
 		if (!options.silent) {
-			toast.add({ title: `已打开「${result.file.reportName || "未命名报告"}」`, type: "success" });
+			toast.add({ title: `已打开「${file.reportName || "未命名报告"}」`, type: "success" });
 		}
-		if (restored) {
+		if (restored?.file) {
 			toast.add({
 				title: "已恢复未保存的修改",
 				description: "上次退出时还有改动没保存，已从草稿恢复；Ctrl+S 写回正式文件",
 				type: "info",
 			});
 		}
-		if (result.warnings.length > 0) {
+		if (validation.issues.length > 0) {
 			toast.add({
 				title: "文件有部分内容被修正",
-				description: result.warnings.slice(0, 3).join("；"),
+				description: summarizeIssues(validation),
 				type: "warning",
 			});
 		}
