@@ -1,37 +1,50 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 import { saveDraft } from "@/lib/report-service";
 import { saveStateStore } from "@/store";
 
-/** 停止编辑后多久写一次草稿 */
-const DRAFT_DELAY = 1500;
+/** 检查间隔：只要还有新改动，最多等这么久就落一次盘 */
+const DRAFT_INTERVAL = 2000;
 
 /**
  * 草稿自动保存。
- * 只保护"从未保存过"的报告 —— 已落盘的报告交给用户手动 Ctrl+S。
+ *
+ * 曾经的写法是「每次改动重置一个 1.5s 定时器」，问题很致命：
+ * 拖拽、打字、画一笔都会 commit，revision 一直在变，定时器就一直被重置 ——
+ * **只要用户不连续停手 1.5 秒，草稿就永远不写**。编辑得越投入，丢得越多。
+ *
+ * 现在改成固定间隔轮询 + 版本号去重：
+ * 每 2 秒检查一次，有未落盘的新改动就写。连续编辑时也保证每 2 秒有一次快照。
  */
 export function useDraftAutosave() {
-	const view = useSyncExternalStore(saveStateStore.subscribe, saveStateStore.getSnapshot);
-	const timer = useRef<number | null>(null);
+	/** 上次写进草稿的 revision，没变就不重复写 */
+	const lastSavedRevision = useRef(-1);
 
 	useEffect(() => {
-		if (!view.dirty || view.persisted) {
-			return;
-		}
-
-		// revision 变了说明又改了一次，重新计时
-		if (timer.current !== null) {
-			window.clearTimeout(timer.current);
-		}
-		timer.current = window.setTimeout(() => {
-			timer.current = null;
+		const flush = () => {
+			const state = saveStateStore.getState();
+			if (state.saving || !saveStateStore.isDirty()) {
+				return;
+			}
+			if (state.revision === lastSavedRevision.current) {
+				return;
+			}
+			lastSavedRevision.current = state.revision;
 			void saveDraft();
-		}, DRAFT_DELAY);
+		};
 
-		return () => {
-			if (timer.current !== null) {
-				window.clearTimeout(timer.current);
-				timer.current = null;
+		const timer = window.setInterval(flush, DRAFT_INTERVAL);
+
+		// 切走窗口/最小化时立刻补一次：系统休眠、强制关机前这是最后的机会
+		const handleHidden = () => {
+			if (document.visibilityState === "hidden") {
+				flush();
 			}
 		};
-	}, [view.dirty, view.persisted, view.revision]);
+		document.addEventListener("visibilitychange", handleHidden);
+
+		return () => {
+			window.clearInterval(timer);
+			document.removeEventListener("visibilitychange", handleHidden);
+		};
+	}, []);
 }

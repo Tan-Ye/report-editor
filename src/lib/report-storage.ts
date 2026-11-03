@@ -141,6 +141,11 @@ export async function renameReportDir(
 	});
 }
 
+/** 按相对路径改名（备份单个文件用） */
+export async function renamePath(root: string, from: string, to: string): Promise<void> {
+	await call("storage_rename", { root, from, to });
+}
+
 /** 删除整个报告目录（清理草稿时用），失败不抛错 */
 export async function removeReportDir(
 	root: string,

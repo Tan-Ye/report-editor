@@ -26,11 +26,13 @@ import {
 	getAppDataRoot,
 	getFolderJsonPath,
 	getReportUpdatedAt,
+	hasReportFile,
 	listReportFolders,
 	moveReportDir,
 	readReportJson,
 	removeReportDir,
 	removeUnreferencedMedia,
+	renamePath,
 	renameReportDir,
 	writeJsonAtomically,
 } from "./report-storage";
@@ -234,6 +236,8 @@ export async function saveReport(): Promise<void> {
 			(await findReportFolder(root, SAVED_AREA, reportId)) ??
 			getReportFolderName(reportName, reportId);
 		await ensureReportFolder(root, SAVED_AREA, folder);
+		// 覆盖前留一份上一版：原子写能防"写一半崩掉"，但防不了"存进了一份坏内容"
+		await backupReportFile(root, SAVED_AREA, folder);
 		// 草稿阶段的图片存在 cache，保存后 cache 目录会被清掉，先把媒体文件搬过来
 		const draftFolder = await findReportFolder(root, DRAFT_AREA, reportId);
 		if (draftFolder) {
@@ -273,10 +277,16 @@ export async function saveReport(): Promise<void> {
 
 /**
  * 草稿自动保存。
- * 已保存过的报告不做草稿（按需求只保护"从未保存过"的内容）。
+ *
+ * **已保存的报告也写草稿**：以前只保护"从未保存过"的内容，结果改了一小时没按 Ctrl+S、
+ * 程序崩了就全丢。现在草稿对两种报告一视同仁 —— 保存成功后草稿会被清掉，
+ * 下次改动再重新攒。
+ *
+ * 写的是 `cache/<报告目录>/report.json`，和正式文件同一个相对路径，
+ * 所以恢复时不用做任何结构转换。
  */
 export async function saveDraft(): Promise<void> {
-	if (saveStateStore.getState().persisted || saveStateStore.getState().saving) {
+	if (saveStateStore.getState().saving) {
 		return;
 	}
 
@@ -388,13 +398,37 @@ export async function openReport(
 		const result = parseReportFile(JSON.parse(raw));
 		applyReportFile(result.file);
 		reportStore.setRootPath(root);
+
+		// 有比正式文件更新的草稿 = 上次是异常退出（或崩溃），把改动接回来
+		const draft = await readNewerDraft(root, result.file.reportId);
+		const restored = draft ? parseReportFile(JSON.parse(draft)) : null;
+		if (restored) {
+			applyReportFile(restored.file);
+			reportStore.setRootPath(root);
+		}
+
 		// 换了文档：历史清空，保存状态重置为"已保存且干净"
 		historyStore.reset();
 		saveStateStore.reset(true);
-		// 打开别的报告时，之前的草稿没有意义了
-		await clearDrafts(root);
+		if (restored) {
+			// 草稿内容还没进正式文件：标脏，这样关窗口会提示、Ctrl+S 会覆盖写回
+			historyStore.commit();
+		}
+
+		// 只清这份报告自己的草稿：别人的草稿还要留着下次恢复
+		if (result.file.reportId) {
+			await removeDraftFolder(root, result.file.reportId);
+		}
+
 		if (!options.silent) {
 			toast.add({ title: `已打开「${result.file.reportName || "未命名报告"}」`, type: "success" });
+		}
+		if (restored) {
+			toast.add({
+				title: "已恢复未保存的修改",
+				description: "上次退出时还有改动没保存，已从草稿恢复；Ctrl+S 写回正式文件",
+				type: "info",
+			});
 		}
 		if (result.warnings.length > 0) {
 			toast.add({
@@ -408,11 +442,52 @@ export async function openReport(
 	}
 }
 
-/** 清空全部草稿（打开报告后调用） */
-async function clearDrafts(root: string): Promise<void> {
-	const folders = await listReportFolders(root, DRAFT_AREA);
-	for (const folder of folders) {
+/**
+ * 保存前把上一版留成 `report.json.bak`。
+ *
+ * 原子写只能防"写到一半崩掉"，防不了"存进去的内容本身是坏的"（比如某个 bug
+ * 把元素清空了又按了保存）。留一份上一版，至少还能手工捡回来。
+ */
+async function backupReportFile(
+	root: string,
+	area: ReportArea,
+	folder: string,
+): Promise<void> {
+	try {
+		if (!(await hasReportFile(root, area, folder))) {
+			return;
+		}
+		const json = `${area}/${folder}/report.json`;
+		await renamePath(root, json, `${json}.bak`);
+	} catch {
+		// 备份失败不该拦住保存
+	}
+}
+
+/**
+ * 找这份报告的草稿，且必须**比正式文件新**。
+ * 草稿每次自动保存都会刷新，所以「更新」基本等价于「上次没保存成功就退出了」。
+ */
+async function readNewerDraft(root: string, reportId: string): Promise<string | null> {
+	const folder = await findReportFolder(root, DRAFT_AREA, reportId);
+	if (!folder) {
+		return null;
+	}
+	const draftTime = await getReportUpdatedAt(root, DRAFT_AREA, folder);
+	if (!draftTime) {
+		return null;
+	}
+	const savedFolder = await findReportFolder(root, SAVED_AREA, reportId);
+	const savedTime = savedFolder ? await getReportUpdatedAt(root, SAVED_AREA, savedFolder) : 0;
+	if (savedTime && draftTime <= savedTime) {
+		// 草稿比正式文件旧：说明已经保存过了，这份草稿是残留
 		await removeReportDir(root, DRAFT_AREA, folder);
+		return null;
+	}
+	try {
+		return await readReportJson(root, DRAFT_AREA, folder);
+	} catch {
+		return null;
 	}
 }
 
