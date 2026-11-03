@@ -65,6 +65,47 @@ pnpm test          # 单测（vitest）
 pnpm tauri build   # 打安装包，产物在 src-tauri/target/release/bundle/
 ```
 
+### 升级依赖
+
+Tauri 的 npm 包和对应 Rust crate 的 **major.minor 必须一致**，否则 `tauri build` 会直接报
+`Found version mismatched Tauri packages` 并退出。发版前先对齐：
+
+```powershell
+pnpm up "@tauri-apps/*" --latest
+cargo update --manifest-path src-tauri\Cargo.toml
+pnpm tauri info      # 打印版本矩阵，确认全绿
+```
+
+其它依赖按风险分档升：
+
+```powershell
+pnpm outdated                                          # 看哪些过期
+pnpm up                                                # 只在 package.json 范围内升（安全）
+pnpm up -i                                             # 交互式逐个决定（大版本推荐这个）
+pnpm up --latest                                       # 全量跳大版本，升完必须手工验界面
+cargo outdated --manifest-path src-tauri\Cargo.toml    # 需要 cargo install cargo-outdated
+cargo upgrade --manifest-path src-tauri\Cargo.toml --incompatible   # 需要 cargo install cargo-edit
+```
+
+升级后固定要过的三道关：`pnpm test`、`npx tsc --noEmit`、`pnpm tauri build`。
+
+## 发布
+
+```bash
+pnpm up "@tauri-apps/*" --latest && cargo update --manifest-path src-tauri\Cargo.toml
+pnpm test && npx tsc --noEmit
+pnpm tauri build
+```
+
+产物：
+
+```
+src-tauri/target/release/bundle/nsis/report-editor_<版本>_x64-setup.exe   # 推荐
+src-tauri/target/release/bundle/msi/report-editor_<版本>_x64_en-US.msi
+```
+
+把这两个文件传到 GitHub Release，说明直接用 `CHANGELOG.md` 里对应版本那一段。
+
 ## 数据存放
 
 ```
