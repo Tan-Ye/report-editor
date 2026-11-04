@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "@/components/ui/toast";
 import { runWhenIdle } from "@/lib/utils";
 import type { FillSpec, PageInfo } from "@/store";
-import { getCurrentReportDir, getCurrentReportRelativeDir, getCurrentReportRoot } from "./report-service";
+import { getCurrentReportDir, getCurrentReportRelativeDir, getCurrentReportRoot } from "./report/service";
 
 /** 支持导入的图片类型（和 Rust 侧的白名单保持一致） */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];

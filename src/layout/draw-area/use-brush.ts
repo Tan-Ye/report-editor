@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import * as fabric from "fabric";
 import { BRUSH_ELEMENT_TYPE } from "@/base/elements";
-import { snapshotElementInfo } from "@/lib/element-registry";
+import { snapshotElementInfo } from "@/lib/element/registry";
 import { createUniqueId } from "@/lib/utils";
 import { brushStore, elementObjectMap, historyStore, pageStore, toolStore, type BrushCap } from "@/store";
 

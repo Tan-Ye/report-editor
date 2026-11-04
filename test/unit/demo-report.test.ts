@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { baseHeight, baseWidth } from "@/base";
-import { buildDemoSteps, runDemoReport } from "@/lib/demo-report";
+import { buildDemoSteps, runDemoReport } from "@/lib/demo/report";
 import { createPage, historyStore, pageStore, reportStore } from "@/store";
 
 /**

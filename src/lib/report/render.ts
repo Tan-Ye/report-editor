@@ -1,5 +1,5 @@
 import type { ReportFile } from "@/store/schema";
-import { collectImageSources, ensureMediaImages, setMediaBase } from "./media";
+import { collectImageSources, ensureMediaImages, setMediaBase } from "../media";
 import { renderPageImage, type RenderPageOptions } from "./page-image";
 
 /**

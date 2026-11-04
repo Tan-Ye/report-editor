@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ELEMENT_COMMAND, emitter } from "@/lib/emitter";
 import { selectionStore } from "@/store";
-import type { AlignDirection } from "@/lib/align";
+import type { AlignDirection } from "@/lib/element/align";
 
 interface AlignAction {
   direction: AlignDirection;

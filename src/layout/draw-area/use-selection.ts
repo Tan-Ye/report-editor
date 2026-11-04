@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
 import { IMAGE_ELEMENT_TYPE } from "@/base/elements";
-import { getAlignOffset, unionBounds, type AlignDirection } from "@/lib/align";
+import { getAlignOffset, unionBounds, type AlignDirection } from "@/lib/element/align";
 import {
 	applyGeometryPatch,
 	applyStylePatch,
@@ -13,7 +13,7 @@ import {
 	readElementInfo,
 	refreshFill,
 	toFabricPaint,
-} from "@/lib/element-registry";
+} from "@/lib/element/registry";
 import {
 	ELEMENT_COMMAND,
 	emitter,
@@ -272,6 +272,10 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		function handlePageMouseDown(opt: { target?: unknown; e: Event }) {
 			pageClickStart = null;
+			// 裁剪态由覆盖层接管鼠标，不在这里选背景
+			if (toolStore.getCroppingId()) {
+				return;
+			}
 			// 画笔模式下拖笔不该顺带选中背景
 			if (!page || opt.target || toolStore.getActiveTool() === "brush") {
 				return;
@@ -348,6 +352,10 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		// 顶栏与属性面板发来的元素命令（对齐、改几何、改外观、改背景）
 		const unsubscribeCommand = emitter.on<ElementCommandPayload>(ELEMENT_COMMAND, (payload) => {
+			// 裁剪态里面板命令不该插进来：几何和填充会在确认时统一写
+			if (toolStore.getCroppingId()) {
+				return;
+			}
 			if (payload?.type === "align") {
 				alignSelectedElements(payload.direction);
 				return;

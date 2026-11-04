@@ -24,7 +24,7 @@
 ## 依赖方向
 
 - 组件层（`src/layout/`）可以读写 `src/store/`，也可以通过 `src/lib/` 操作画布。
-- `src/lib/` 可以依赖 `src/store/` 的类型与运行时映射表；反向不允许（`store/` 不得 import `lib/element-registry` 这类带副作用的模块）。
+- `src/lib/` 可以依赖 `src/store/` 的类型与运行时映射表；反向不允许（`store/` 不得 import `lib/element/registry` 这类带副作用的模块）。
 - `src/base/` 只导出常量与数据，不依赖任何运行时模块。
 - 状态的写入统一走 `store/coordination` 或对应的 store 方法，组件不直接改 store 的 `state` 字段。
 

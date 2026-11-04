@@ -166,7 +166,7 @@ src-tauri/target/release/bundle/nsis/report-editor_<版本>_x64-setup.exe
 1. **富文本 / 图片裁剪** —— 文本分段样式、图片裁切框
 2. **表格元素** —— 合并单元格、行列拖拽、内容溢出策略
 3. **数据绑定** —— 数据源导入、字段映射、逐页渲染
-4. **接入 agent** —— 无头渲染 + 校验已经就绪（`lib/report-render.ts`、`lib/report-validate.ts`），
+4. **接入 agent** —— 无头渲染 + 校验已经就绪（`lib/report/render.ts`、`lib/report/validate.ts`），
    缺的是把能力暴露成工具（MCP / CLI），让模型能"生成 JSON → 渲染 → 自检"
 5. **矢量导出** —— fabric `toSVG` 路线，需先验证图片 Pattern 的保真度
 

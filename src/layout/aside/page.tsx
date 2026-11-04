@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Trash2 } from "lucide-react";
 import { baseHeight, baseWidth } from "@/base";
 import { Button } from "@/components/ui/button";
-import { requestPageThumbnail } from "@/lib/page-thumbnail";
+import { requestPageThumbnail } from "@/lib/report/page-thumbnail";
 import { cn } from "@/lib/utils";
 import type { PageInfo } from "@/store";
 import { useInView } from "./use-in-view";

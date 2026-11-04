@@ -3,11 +3,24 @@
  *
  * 类型和 `normalizeFill` 放在一起：解析要懂填充自己的历史格式
  * （纯色字符串、旧版渐变坐标、fabric 至少两个色标），属于这个领域，
- * 不是全局通用工具。fabric 转换在 `lib/fill.ts`。
+ * 不是全局通用工具。fabric 转换在 `lib/element/fill.ts`。
  */
 
 /** 图片填充的适应方式 */
 export type ImageFit = "cover" | "contain" | "tile" | "center" | "original";
+
+/**
+ * 图片裁剪区域：**源图的像素矩形**（不是元素坐标，也不是 0~1 比例）。
+ *
+ * 存原图像素的好处：元素之后怎么缩放都不影响裁剪内容；
+ * 越界/超出原图的部分交给渲染时按 naturalWidth/naturalHeight 夹取。
+ */
+export interface ImageCrop {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
 
 /** 渐变的一个色标 */
 export interface GradientStop {
@@ -24,7 +37,7 @@ export interface GradientStop {
  *
  * 存的是「意图」（角度、适应方式），不是渲染产物：
  * 元素尺寸变了要按新尺寸重算，把 fabric 的对象存进 JSON 就再也算不出来了。
- * 转换只发生在 store → fabric 这一侧，见 `lib/fill.ts`。
+ * 转换只发生在 store → fabric 这一侧，见 `lib/element/fill.ts`。
  */
 export type FillSpec =
 	| { kind: "solid"; color: string }
@@ -40,7 +53,15 @@ export type FillSpec =
 			/** 相对报告目录的路径，例如 "media/3f2a9c1e.png" */
 			source: string;
 			fit: ImageFit;
+			/**
+			 * 裁剪区域。**有它的时候 fit 不参与渲染** —— 元素显示的就是裁剪块本身，
+			 * 否则改一次填充方式就把裁剪结果又裁了一遍（"框里是什么就是什么"）。
+			 */
+			crop?: ImageCrop;
 	  };
+
+/** 图片填充的完整规格：面板、裁剪层、渲染都按它读写 */
+export type ImageFillSpec = Extract<FillSpec, { kind: "image" }>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,6 +70,24 @@ const clamp01 = (value: number) => Math.min(Math.max(value, 0), 1);
 
 const numberOr = (value: unknown, fallback: number): number =>
 	typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+/**
+ * 裁剪区域只接受有限数字和正数宽高；x/y 夹到 0 以上。
+ * 超出原图的部分不在这里处理 —— 读文件时还没有图片尺寸，交给渲染层夹取。
+ */
+function parseCrop(raw: unknown): ImageCrop | undefined {
+	if (!isRecord(raw)) {
+		return undefined;
+	}
+	const x = Math.round(numberOr(raw.x, Number.NaN));
+	const y = Math.round(numberOr(raw.y, Number.NaN));
+	const width = Math.round(numberOr(raw.width, Number.NaN));
+	const height = Math.round(numberOr(raw.height, Number.NaN));
+	if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+		return undefined;
+	}
+	return { x: Math.max(0, x), y: Math.max(0, y), width, height };
+}
 
 function parseStops(raw: unknown): GradientStop[] {
 	if (!Array.isArray(raw)) {
@@ -118,6 +157,7 @@ export function normalizeFill(raw: unknown): FillSpec | undefined {
 			return undefined;
 		}
 		const fit = raw.fit;
+		const crop = parseCrop(raw.crop);
 		return {
 			kind: "image",
 			source: raw.source,
@@ -125,6 +165,7 @@ export function normalizeFill(raw: unknown): FillSpec | undefined {
 				fit === "cover" || fit === "contain" || fit === "tile" || fit === "center"
 					? fit
 					: "original",
+			...(crop ? { crop } : {}),
 		};
 	}
 

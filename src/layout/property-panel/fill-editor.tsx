@@ -4,7 +4,7 @@ import { THEME_COLORS } from "@/base/colors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { applyAlpha } from "@/lib/fill";
+import { applyAlpha } from "@/lib/element/fill";
 import { importImageFill } from "@/lib/media";
 import { rememberColor } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
@@ -511,13 +511,19 @@ function FillPanel({
 										size="xs"
 										variant={image.fit === option.value ? "secondary" : "ghost"}
 										className="flex-1"
-										disabled={disabled}
+										// 已裁剪时 fit 不参与渲染：改了也没效果，先禁掉
+										disabled={disabled || Boolean(image.crop)}
 										onClick={() => emitImageFit(option.value)}
 									>
 										{option.label}
 									</Button>
 								))}
 							</div>
+							{image.crop && (
+								<p className="text-xs text-muted-foreground">
+									已裁剪：填充方式暂不生效。把裁剪框拉回整图再确认即可恢复。
+								</p>
+							)}
 						</>
 					)}
 				</div>

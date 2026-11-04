@@ -8,8 +8,8 @@ import {
 	renderPageForAgent,
 	setPageFill,
 	updateElement,
-} from "./report-commands";
-import type { AgentToolCall } from "./agent";
+} from "../report/commands";
+import type { AgentToolCall } from "./llm";
 import { agentStore, getProviderPreset } from "@/store";
 import { IMAGE_ELEMENT_TYPE } from "@/base/elements";
 

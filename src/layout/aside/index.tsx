@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cancelPageThumbnail } from "@/lib/page-thumbnail";
+import { cancelPageThumbnail } from "@/lib/report/page-thumbnail";
 import { historyStore, pageStore, thumbnailStore } from "@/store";
 import { PageItem } from "./page";
 

@@ -115,7 +115,7 @@ export const TEXT_ALIGN_OPTIONS = [
  * 故意放在 base（纯数据模块、不 import fabric）：校验报告时要知道
  * "这个类型认不认识"，而校验要能在没有 canvas 的环境里跑（测试、以后的无头校验）。
  *
- * ⚠️ 新增元素类型时这里和 `lib/element-definitions.ts` 的 ELEMENT_DEFINITIONS 都要加。
+ * ⚠️ 新增元素类型时这里和 `lib/element/definitions.ts` 的 ELEMENT_DEFINITIONS 都要加。
  */
 export const KNOWN_ELEMENT_TYPES: readonly string[] = [
 	"rect",

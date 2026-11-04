@@ -9,7 +9,7 @@ import {
 	getPageDetail,
 	setPageFill,
 	updateElement,
-} from "@/lib/report-commands";
+} from "@/lib/report/commands";
 import { createPage, historyStore, pageStore, reportStore } from "@/store";
 
 /** 每个用例从"一页空白文档 + 干净历史"开始 */

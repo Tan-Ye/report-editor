@@ -1,5 +1,5 @@
 import type { ElementShadow, FillSpec } from "@/store";
-import type { AlignDirection } from "./align";
+import type { AlignDirection } from "./element/align";
 
 // 订阅事件常量集
 export const PAGE_MODAL_UPDATE = "pageModalUpdate";

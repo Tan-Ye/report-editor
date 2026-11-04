@@ -5,7 +5,7 @@ import {
 	getReportMediaPath,
 	sanitizeFolderName,
 	toMediaReference,
-} from "@/lib/report-path";
+} from "@/lib/report/path";
 
 describe("sanitizeFolderName", () => {
 	it("去掉 Windows 非法字符", () => {

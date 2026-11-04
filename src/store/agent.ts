@@ -9,7 +9,7 @@ export type AgentProvider = "deepseek" | "openai" | "custom";
 
 export interface AgentSettings {
 	provider: AgentProvider;
-	/** 接口根地址，例如 https://api.deepseek.com/v1 */
+	/** 接口根地址，例如 https://api.deepseek.com（带不带版本段都行，末尾接 /chat/completions） */
 	baseUrl: string;
 	/** 模型名，例如 deepseek-chat */
 	model: string;
@@ -50,7 +50,7 @@ export const AGENT_PROVIDERS: AgentProviderPreset[] = [
 	{
 		value: "deepseek",
 		label: "DeepSeek",
-		baseUrl: "https://api.deepseek.com/v1",
+		baseUrl: "https://api.deepseek.com",
 		models: ["deepseek-chat", "deepseek-reasoner"],
 		// reasoner 系列对 function calling 支持有限，选了它 agent 只能聊天
 		noTools: ["deepseek-reasoner"],
@@ -113,7 +113,7 @@ const EMPTY_KEYS: Record<AgentProvider, string> = {
 
 const INITIAL: AgentSettings = {
 	provider: "deepseek",
-	baseUrl: "https://api.deepseek.com/v1",
+	baseUrl: "https://api.deepseek.com",
 	model: "deepseek-chat",
 	apiKeys: { ...EMPTY_KEYS },
 	generateImages: false,

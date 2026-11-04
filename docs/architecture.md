@@ -28,7 +28,7 @@ components/  ui（无业务）、report（报告相关）、agent（AI 面板）
 | `store/` | 可序列化的状态、文档模型、store 方法 | DOM 引用、fabric 实例的副作用 |
 | `lib/` | IO、渲染、命令、导出、agent 编排 | React 组件、UI 状态 |
 | `lib/utils/` | `clamp`、`createUniqueId`、路径处理这类纯函数 | `normalizeFill`（这是领域知识，在 `store/fill.ts`） |
-| `layout/draw-area/` | 画布相关的 hooks（选择、绘制、画笔、缩放） | 业务命令（在 `lib/report-commands.ts`） |
+| `layout/draw-area/` | 画布相关的 hooks（选择、绘制、画笔、缩放） | 业务命令（在 `lib/report/commands.ts`） |
 
 文件命名：kebab-case；导出用命名导出（不用 default，除了页面级组件）。
 
@@ -39,7 +39,7 @@ components/  ui（无业务）、report（报告相关）、agent（AI 面板）
    指针事件 → draw-area 的 hooks → 画布改 → readElementInfo 落 store → historyStore.commit()
 
 ② agent / 脚本
-   lib/report-commands.ts → 改 store → pageStore.replacePages()（bump revision）
+   lib/report/commands.ts → 改 store → pageStore.replacePages()（bump revision）
                           → 画布整页重载 → historyStore.commit()
 
 ③ 打开/撤销
@@ -97,7 +97,7 @@ agent-panel（UI） → agent-runner（循环） → agent-tools（工具定义�
 
 ## 示例演示
 
-`lib/demo-runner.ts` 负责调度：加锁 → 抑制历史（`setHistorySuppressed`）→ 分步执行（每步都会重载画布）→ 结束时补一次历史提交 → 解锁。所以整场演示只占一步撤销，中途停止不会留下半截历史。
+`lib/demo/runner.ts` 负责调度：加锁 → 抑制历史（`setHistorySuppressed`）→ 分步执行（每步都会重载画布）→ 结束时补一次历史提交 → 解锁。所以整场演示只占一步撤销，中途停止不会留下半截历史。
 
 ## 测试
 
@@ -108,6 +108,6 @@ agent-panel（UI） → agent-runner（循环） → agent-tools（工具定义�
 
 ## 已知技术债
 
-- `lib/report-commands.ts` 的 `describeElementTypes`、`lib/agent-conversation.ts` 的 `CONVERSATION_DIRNAME`、`lib/agent-tools.ts` 的 `modelSupportsVision` 目前没有调用方（预留接口）
+- `lib/report/commands.ts` 的 `describeElementTypes`、`lib/agent/conversation.ts` 的 `CONVERSATION_DIRNAME`、`lib/agent/tools.ts` 的 `modelSupportsVision` 目前没有调用方（预留接口）
 - agent 的 `render_page` 图片只给用户看，模型看不到（DeepSeek 纯文本）；接视觉模型时需要在消息里带 image_url
 - 无自动更新：只做版本检查 + 跳发布页

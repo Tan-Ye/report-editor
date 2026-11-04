@@ -1,7 +1,7 @@
 import type { FabricObject } from "fabric";
 import type { FillSpec } from "./fill";
 
-export type { FillSpec, GradientStop, ImageFit } from "./fill";
+export type { FillSpec, GradientStop, ImageCrop, ImageFillSpec, ImageFit } from "./fill";
 export { normalizeFill } from "./fill";
 
 /**
@@ -52,7 +52,7 @@ export type ElementAttrs = {
 	[key: string]: unknown;
 };
 
-/** 元素业务类型，与元素注册表（lib/element-registry）的键一一对应 */
+/** 元素业务类型，与元素注册表（lib/element/registry）的键一一对应 */
 export type ElementType = string;
 
 export interface ElementInfo {

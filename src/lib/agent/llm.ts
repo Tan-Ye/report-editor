@@ -5,7 +5,7 @@ import { agentStore, supportsTools, type AgentSettings } from "@/store";
  * 大模型调用封装。
  *
  * 只做三件事：拼请求、调 Rust 命令、把响应里的 message / usage 摘出来。
- * 工具调用怎么执行、要不要再问一轮，属于 agent 循环（`lib/agent-loop.ts`）的事。
+ * 工具调用怎么执行、要不要再问一轮，属于 agent 循环（`lib/agent/runner.ts`）的事。
  *
  * 协议固定 OpenAI 兼容格式；换服务商只是换地址和模型名。
  */

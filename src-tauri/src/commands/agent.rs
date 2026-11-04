@@ -29,7 +29,7 @@ const MAX_ERROR_BODY: usize = 300;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
-    /// 接口根地址，例如 `https://api.deepseek.com/v1`；结尾带不带斜杠都行
+    /// 接口根地址，例如 `https://api.deepseek.com`；结尾带不带斜杠都行
     pub base_url: String,
     /// API Key。本地模型（Ollama / vLLM）通常不校验，留空就不发 Authorization
     #[serde(default)]
@@ -47,8 +47,9 @@ pub struct ChatRequest {
 
 /// 把用户填的根地址拼成 chat/completions 端点。
 ///
-/// 允许用户填 `https://api.deepseek.com` 或 `https://api.deepseek.com/v1`
-/// 两种写法：前者补 `/v1`，后者直接用。
+/// **不自作主张补 `/v1`**：带不带版本段由地址自己决定 —— DeepSeek 用
+/// `https://api.deepseek.com`，OpenAI / Ollama 用 `https://…/v1`，
+/// 这里只负责在末尾接上 `/chat/completions`。
 fn chat_endpoint(base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -60,17 +61,7 @@ fn chat_endpoint(base_url: &str) -> Result<String, String> {
     if trimmed.ends_with("/chat/completions") {
         return Ok(trimmed.to_string());
     }
-    // 没写版本段时补 /v1：OpenAI 兼容端点基本都是这个约定
-    let has_version = trimmed
-        .rsplit('/')
-        .next()
-        .map(|segment| segment.starts_with('v') && segment[1..].chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false);
-    if has_version {
-        Ok(format!("{trimmed}/chat/completions"))
-    } else {
-        Ok(format!("{trimmed}/v1/chat/completions"))
-    }
+    Ok(format!("{trimmed}/chat/completions"))
 }
 
 /// 用户可以按不同习惯粘贴 Key：带引号、整段 "Bearer xxx"、前后空格。
@@ -180,27 +171,34 @@ mod tests {
     #[test]
     fn accepts_camel_case_payload() {
         let payload = serde_json::json!({
-            "baseUrl": "https://api.deepseek.com/v1",
+            "baseUrl": "https://api.deepseek.com",
             "apiKey": "sk-test",
             "model": "deepseek-chat",
             "messages": [{ "role": "user", "content": "hi" }],
         });
         let parsed: ChatRequest =
             serde_json::from_value(payload).expect("camelCase 参数应该能解析");
-        assert_eq!(parsed.base_url, "https://api.deepseek.com/v1");
+        assert_eq!(parsed.base_url, "https://api.deepseek.com");
         assert_eq!(parsed.api_key, "sk-test");
     }
 
-    /// 只填域名时补 /v1，写了 /v1 就不重复补
+    /// 根地址后面只接 `/chat/completions`，不补 `/v1`：
+    /// 版本段由地址自己带（DeepSeek 不带、OpenAI 带 `/v1`）
     #[test]
-    fn appends_version_and_endpoint() {
+    fn appends_chat_endpoint_only() {
         assert_eq!(
             chat_endpoint("https://api.deepseek.com").unwrap(),
-            "https://api.deepseek.com/v1/chat/completions"
+            "https://api.deepseek.com/chat/completions"
         );
+        // 结尾多余的斜杠要去掉
         assert_eq!(
-            chat_endpoint("https://api.deepseek.com/v1/").unwrap(),
-            "https://api.deepseek.com/v1/chat/completions"
+            chat_endpoint("https://api.deepseek.com/").unwrap(),
+            "https://api.deepseek.com/chat/completions"
+        );
+        // 带版本段的地址原样保留
+        assert_eq!(
+            chat_endpoint("https://api.openai.com/v1").unwrap(),
+            "https://api.openai.com/v1/chat/completions"
         );
     }
 

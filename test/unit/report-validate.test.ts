@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { KNOWN_ELEMENT_TYPES } from "@/base/elements";
-import { isClean, summarizeIssues, validateReportJson } from "@/lib/report-validate";
+import { isClean, summarizeIssues, validateReportJson } from "@/lib/report/validate";
 import fixtureJson from "../fixtures/report-v1.json";
 
 /**

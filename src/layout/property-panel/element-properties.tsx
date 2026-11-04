@@ -1,4 +1,4 @@
-import { Lock, Maximize2 } from "lucide-react";
+import { Crop, Lock, Maximize2 } from "lucide-react";
 import { baseHeight, baseWidth } from "@/base";
 import { IMAGE_ELEMENT_TYPE, TEXT_ELEMENT_TYPE, getElementTypeLabel } from "@/base/elements";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import {
 	getElementDefinition,
 	getElementGeometry,
 	readGeometryValues,
-} from "@/lib/element-registry";
+} from "@/lib/element/registry";
 import {
 	ELEMENT_COMMAND,
 	emitter,
@@ -15,7 +15,7 @@ import {
 	type ElementStylePatch,
 } from "@/lib/emitter";
 import { getMediaImage } from "@/lib/media";
-import type { ElementInfo, ElementShadow } from "@/store";
+import { toolStore, type ElementInfo, type ElementShadow } from "@/store";
 import { AngleDial } from "./angle-dial";
 import { ColorInput, FillEditor } from "./fill-editor";
 import { NumberField } from "./number-field";
@@ -89,6 +89,9 @@ export function ElementProperties({ element }: ElementPropertiesProps) {
 	const supportsFill = definition?.props.includes("fill") ?? false;
 	const supportsStroke = definition?.props.includes("stroke") ?? false;
 	const supportsStrokeWidth = definition?.props.includes("strokeWidth") ?? false;
+	// 只有图片元素能裁剪（内部是 Rect + 图片填充，必须按 elementType 判）
+	const isImageElement =
+		element.elementType === IMAGE_ELEMENT_TYPE && element.attrs.fill?.kind === "image";
 
 	const strokeWidth = typeof element.attrs.strokeWidth === "number" ? element.attrs.strokeWidth : 0;
 	const opacity = typeof element.attrs.opacity === "number" ? element.attrs.opacity : 1;
@@ -186,6 +189,21 @@ export function ElementProperties({ element }: ElementPropertiesProps) {
 						<span className="text-muted-foreground">
 							（{restoreSize.naturalWidth}×{restoreSize.naturalHeight}）
 						</span>
+					</Button>
+				)}
+
+				{isImageElement && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="xs"
+						disabled={locked}
+						title="在独立图层里调整取景范围"
+						onClick={() => toolStore.startCropping(element.id)}
+						className="self-start text-muted-foreground hover:text-foreground"
+					>
+						<Crop className="size-3" />
+						裁剪
 					</Button>
 				)}
 			</div>

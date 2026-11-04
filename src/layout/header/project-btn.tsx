@@ -3,8 +3,8 @@ import { useState, useSyncExternalStore } from "react";
 import { OpenReportDrawer } from "@/components/report/open-report-drawer";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { saveReport } from "@/lib/report-service";
-import { openNewReportWindow } from "@/lib/report-window";
+import { saveReport } from "@/lib/report/service";
+import { openNewReportWindow } from "@/lib/report/service/window";
 import { saveStateStore } from "@/store";
 
 export function ProjectBtn() {

@@ -11,7 +11,7 @@ import {
 	getElementDefinition,
 	isElementLocked,
 	snapshotElementInfo,
-} from "@/lib/element-registry";
+} from "@/lib/element/registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { createUniqueId } from "@/lib/utils";
 import { elementObjectMap, historyStore, pageStore, toolStore } from "@/store";

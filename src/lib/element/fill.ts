@@ -1,6 +1,6 @@
 import * as fabric from "fabric";
-import type { FillSpec, GradientStop, ImageFit } from "@/store";
-import { getMediaImage } from "./media";
+import type { FillSpec, GradientStop, ImageCrop, ImageFillSpec } from "@/store";
+import { getMediaImage } from "../media";
 
 export interface PaintSize {
 	width: number;
@@ -63,42 +63,100 @@ function linearCoords(angle: number, size: PaintSize) {
 
 export type FabricPaint = string | fabric.Gradient<"linear"> | fabric.Gradient<"radial"> | fabric.Pattern;
 
+/** 图源 → 元素本地坐标的映射 */
+export interface ImageLayout {
+	/** 源图到元素本地坐标的缩放（元素被拉伸时 x/y 不等） */
+	scaleX: number;
+	scaleY: number;
+	/** 图源左上角在元素本地坐标里的位置 */
+	offsetX: number;
+	offsetY: number;
+	repeat: "repeat" | "no-repeat";
+}
+
 /**
- * 图片填充 → fabric 的 Pattern。
- *
- * `patternTransform` 是 [scaleX, 0, 0, scaleY, offsetX, offsetY]：
- * cover/contain 按「图片自然尺寸 vs 元素尺寸」算缩放，再把多出来的部分居中裁掉/留白。
- * tile 直接用原尺寸平铺，original 不缩放贴左上角。
+ * 裁剪区域按原图尺寸夹取；没有 crop、或者夹完正好是整图时返回 null。
+ * （整图会被当成"没裁剪"，这样"把框拉到全图再确认"能自然恢复 fit 渲染。）
  */
-function imagePattern(
-	fit: ImageFit,
+export function clampImageCrop(
+	crop: ImageCrop | undefined,
+	naturalWidth: number,
+	naturalHeight: number,
+): ImageCrop | null {
+	if (!crop) {
+		return null;
+	}
+	const x = Math.min(Math.max(0, Math.round(crop.x)), Math.max(0, naturalWidth - 1));
+	const y = Math.min(Math.max(0, Math.round(crop.y)), Math.max(0, naturalHeight - 1));
+	const width = Math.max(1, Math.min(Math.round(crop.width), naturalWidth - x));
+	const height = Math.max(1, Math.min(Math.round(crop.height), naturalHeight - y));
+	if (x === 0 && y === 0 && width === naturalWidth && height === naturalHeight) {
+		return null;
+	}
+	return { x, y, width, height };
+}
+
+/**
+ * 图源 → 元素本地坐标的映射。
+ *
+ * 有 crop 时：裁剪区域**铺满元素**，fit 不参与 —— 框里取到的就是最终画面；
+ * 没有 crop 时：按 fit 的常规规则（cover/contain 等比、center 居中、tile 平铺、original 原大小）。
+ *
+ * 裁剪层也用这个函数摆图，所以覆盖层里的图和元素显示必须严丝合缝。
+ */
+export function imageLayout(
+	fill: ImageFillSpec,
 	image: HTMLImageElement,
 	size: PaintSize,
-): fabric.Pattern {
+): ImageLayout {
 	const naturalWidth = image.naturalWidth || 1;
 	const naturalHeight = image.naturalHeight || 1;
+	const crop = clampImageCrop(fill.crop, naturalWidth, naturalHeight);
+
+	if (crop) {
+		const scaleX = size.width / crop.width;
+		const scaleY = size.height / crop.height;
+		return {
+			scaleX,
+			scaleY,
+			offsetX: -crop.x * scaleX,
+			offsetY: -crop.y * scaleY,
+			repeat: "no-repeat",
+		};
+	}
+
 	let scale = 1;
 	let offsetX = 0;
 	let offsetY = 0;
 	let repeat: "repeat" | "no-repeat" = "no-repeat";
 
-	if (fit === "tile") {
+	if (fill.fit === "tile") {
 		repeat = "repeat";
-	} else if (fit === "cover" || fit === "contain") {
+	} else if (fill.fit === "cover" || fill.fit === "contain") {
 		const scaleX = size.width / naturalWidth;
 		const scaleY = size.height / naturalHeight;
-		scale = fit === "cover" ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
+		scale = fill.fit === "cover" ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
 		offsetX = (size.width - naturalWidth * scale) / 2;
 		offsetY = (size.height - naturalHeight * scale) / 2;
-	} else if (fit === "center") {
+	} else if (fill.fit === "center") {
 		offsetX = (size.width - naturalWidth) / 2;
 		offsetY = (size.height - naturalHeight) / 2;
 	}
 
+	return { scaleX: scale, scaleY: scale, offsetX, offsetY, repeat };
+}
+
+/** 图片填充 → fabric 的 Pattern；映射规则全在 imageLayout 里 */
+function imagePattern(
+	fill: ImageFillSpec,
+	image: HTMLImageElement,
+	size: PaintSize,
+): fabric.Pattern {
+	const layout = imageLayout(fill, image, size);
 	return new fabric.Pattern({
 		source: image,
-		repeat,
-		patternTransform: [scale, 0, 0, scale, offsetX, offsetY],
+		repeat: layout.repeat,
+		patternTransform: [layout.scaleX, 0, 0, layout.scaleY, layout.offsetX, layout.offsetY],
 	});
 }
 
@@ -122,7 +180,7 @@ export function toFabricPaint(
 		// 图片是异步解码的：第一次调用会顺手发起加载并返回 undefined，
 		// 加载完成后由 media 的回调重新应用一次填充
 		const image = getMediaImage(fill.source);
-		return image ? imagePattern(fill.fit, image, size) : undefined;
+		return image ? imagePattern(fill, image, size) : undefined;
 	}
 
 	const colorStops = toColorStops(fill.stops);

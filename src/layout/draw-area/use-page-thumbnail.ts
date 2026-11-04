@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type * as fabric from "fabric";
 import { collectImageSources, ensureMediaImages } from "@/lib/media";
-import { captureCurrentPageThumbnail } from "@/lib/page-thumbnail";
+import { captureCurrentPageThumbnail } from "@/lib/report/page-thumbnail";
 import { historyStore, pageStore, thumbnailStore, type PageInfo } from "@/store";
 
 /** 操作停下来多久再抓：拖拽、输入都结束了才值得画一张 */

@@ -1,8 +1,8 @@
 import { toast } from "@/components/ui/toast";
 import { demoStore, pageStore } from "@/store";
-import { acquireCanvasLock } from "./agent-session";
-import { runDemoReport } from "./demo-report";
-import { commitHistoryNow, setHistorySuppressed } from "./report-commands";
+import { acquireCanvasLock } from "../agent/session";
+import { runDemoReport } from "./report";
+import { commitHistoryNow, setHistorySuppressed } from "../report/commands";
 
 /**
  * 示例演示的调度：加锁 → 抑制历史 → 逐步执行 → 补一步历史 → 解锁。

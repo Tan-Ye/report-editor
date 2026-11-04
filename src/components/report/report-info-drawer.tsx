@@ -13,7 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { getDataDirPath, revealDataDir, saveReport } from "@/lib/report-service";
+import { getDataDirPath, revealDataDir, saveReport } from "@/lib/report/service";
 import { reportStore, saveStateStore } from "@/store";
 
 /** 保存状态的一句话描述 */

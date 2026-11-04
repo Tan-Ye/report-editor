@@ -17,7 +17,7 @@ import {
 	type PageInfo,
 	type PageStyle,
 } from "@/store";
-import { collectImageSources, ensureMediaImages } from "./media";
+import { collectImageSources, ensureMediaImages } from "../media";
 import { renderPageImage } from "./page-image";
 
 /**

@@ -6,7 +6,7 @@ import {
 	getReportMediaDir,
 	getReportMediaPath,
 	type ReportArea,
-} from "./report-path";
+} from "../path";
 
 /**
  * 报告存储的 IO 全部走 Rust 命令。
@@ -131,13 +131,14 @@ export async function getReportUpdatedAt(
 /** 目录改名（报告改名后同步目录名） */
 export async function renameReportDir(
 	root: string,
+	area: ReportArea,
 	fromFolder: string,
 	toFolder: string,
 ): Promise<void> {
 	await call("storage_rename", {
 		root,
-		from: `data/${fromFolder}`,
-		to: `data/${toFolder}`,
+		from: `${area}/${fromFolder}`,
+		to: `${area}/${toFolder}`,
 	});
 }
 

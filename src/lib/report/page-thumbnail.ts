@@ -2,7 +2,7 @@ import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
 import { pageStore, thumbnailStore, type PageInfo } from "@/store";
 import { runWhenIdle } from "@/lib/utils";
-import { collectImageSources, ensureMediaImages } from "./media";
+import { collectImageSources, ensureMediaImages } from "../media";
 import { renderPageImage } from "./page-image";
 
 /** 缩略图输出宽度（像素）：侧栏显示约 160px，取 2× 让高清屏不糊 */

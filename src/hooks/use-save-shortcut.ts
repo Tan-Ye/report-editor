@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { isEditableTarget } from "@/lib/dom";
-import { saveReport } from "@/lib/report-service";
+import { saveReport } from "@/lib/report/service";
 
 /** Ctrl/Cmd + S 保存 */
 export function useSaveShortcut() {

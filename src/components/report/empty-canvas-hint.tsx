@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { startDemo } from "@/lib/demo-runner";
+import { startDemo } from "@/lib/demo/runner";
 import { pageStore, useDemoState } from "@/store";
 
 const subscribe = (listener: () => void) => pageStore.subscribe(listener);

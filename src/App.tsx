@@ -3,6 +3,7 @@ import "./global.css";
 
 import { Toaster } from "@/components/ui/toast";
 import { CloseConfirmDialog } from "@/components/app/close-confirm-dialog";
+import { DraftRecoveryDialog } from "@/components/report/draft-box";
 import {
 	useCloseGuard,
 	useDraftAutosave,
@@ -20,8 +21,8 @@ function App() {
   useSaveShortcut();
   // 未保存的草稿定时写进 cache
   useDraftAutosave();
-  // 启动时恢复上一次的报告（没有才新建）
-  useRestoreReport();
+  // 启动时恢复上一次的报告（没有才新建），顺带发现上次没保存的内容
+  const { draftPrompt } = useRestoreReport();
   // 本地 UI 偏好：最近使用色这类不进文档的习惯
   useUiPreferences();
   // 图片预载：所有页的图都排队加载，切页/缩略图不缺图
@@ -40,6 +41,15 @@ function App() {
         onDiscard={() => void closeGuard.closeWithoutSaving()}
         onCancel={closeGuard.cancelClose}
       />
+      {/* 启动时发现上次没保存的内容：恢复 / 丢弃 / 稍后 */}
+      {draftPrompt && (
+        <DraftRecoveryDialog
+          drafts={draftPrompt.drafts}
+          onRestore={() => void draftPrompt.restoreAll()}
+          onDiscard={() => void draftPrompt.discardAll()}
+          onDismiss={draftPrompt.dismiss}
+        />
+      )}
     </Toaster>
   );
 }

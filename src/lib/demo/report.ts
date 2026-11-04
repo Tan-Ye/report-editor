@@ -1,5 +1,5 @@
 import { baseHeight, baseWidth } from "@/base";
-import { addElement, addPage, setPageFill } from "./report-commands";
+import { addElement, addPage, setPageFill } from "../report/commands";
 
 /**
  * 示例演示：一步一步往画布上放东西。

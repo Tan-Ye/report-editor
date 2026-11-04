@@ -5,7 +5,7 @@ import { baseHeight, baseWidth } from "@/base/index";
 import { setActiveCanvas } from "@/lib/canvas-registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { computeViewportFit } from "@/lib/utils";
-import { viewportStore, zoomStore } from "@/store";
+import { toolStore, viewportStore, zoomStore } from "@/store";
 
 /** 画布句柄：画布与白页都在挂载之后才有值 */
 export interface CanvasHandle {
@@ -149,6 +149,10 @@ export function useCanvas(): CanvasHandle {
 		/** Ctrl/⌘ + 滚轮缩放：只接管这个组合键，其余滚轮保持原有滚动行为 */
 		const handleWheel = (event: WheelEvent) => {
 			if (!(event.ctrlKey || event.metaKey)) {
+				return;
+			}
+			// 裁剪层的坐标是按进入时的视口算的，缩放会让它和元素错位
+			if (toolStore.getCroppingId()) {
 				return;
 			}
 			event.preventDefault();

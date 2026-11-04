@@ -1,4 +1,4 @@
-import { readText, writeJsonAtomically } from "./report-storage";
+import { readText, writeJsonAtomically } from "../report/service/storage";
 
 /**
  * agent 会话持久化：一个报告 = 一个会话文件。

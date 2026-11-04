@@ -1,7 +1,7 @@
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
-import { buildElementObject, toFabricPaint } from "./element-registry";
-import { getReportPalette } from "./theme-tokens";
+import { buildElementObject, toFabricPaint } from "../element/registry";
+import { getReportPalette } from "../theme-tokens";
 import type { PageInfo } from "@/store";
 
 /**

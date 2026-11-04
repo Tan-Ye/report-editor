@@ -2,17 +2,19 @@
  * 报告在磁盘上的路径拼装。
  * 纯函数，不做任何 IO —— 这样路径规则可以单独验证，也方便以后换存储位置。
  *
- * 磁盘结构（data 与 cache 完全一致，保存时整目录迁移即可，JSON 不用改）：
+ * 磁盘结构（三个存储区结构完全一致，所以创建/打开/删除都走同一套路径函数）：
  *
  *   <根目录>/
  *   ├── data/<报告目录>/report.json
  *   ├── data/<报告目录>/media/<hash>.<ext>
  *   ├── cache/<报告目录>/report.json      ← 未保存的草稿
- *   └── cache/<报告目录>/media/…
+ *   ├── cache/<报告目录>/media/…
+ *   └── templates/<模板目录>/report.json  ← 模板（用户主动保存、主动删）
+ *       templates/<模板目录>/media/…
  */
 
-/** 报告数据的存放区：已保存的进 data，草稿留在 cache */
-export type ReportArea = "data" | "cache";
+/** 报告数据的存放区：已保存的进 data，草稿留在 cache，模板单独一区 */
+export type ReportArea = "data" | "cache" | "templates";
 
 export const REPORT_FILE_NAME = "report.json";
 export const REPORT_MEDIA_DIR = "media";

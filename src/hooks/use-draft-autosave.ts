@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { saveDraft } from "@/lib/report-service";
+import { saveDraft } from "@/lib/report/service";
 import { saveStateStore } from "@/store";
 
 /** 检查间隔：只要还有新改动，最多等这么久就落一次盘 */

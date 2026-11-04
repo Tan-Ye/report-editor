@@ -11,6 +11,11 @@ export interface ToolState {
 	shapeType: ShapeType;
 	/** 是否正在拖拽绘制 */
 	drawing: boolean;
+	/**
+	 * 正在裁剪的元素 id；null = 没在裁剪。
+	 * 属于纯 UI 状态（像工具一样），所以放这里而不是元素/页面数据里。
+	 */
+	croppingId: string | null;
 }
 
 /**
@@ -24,6 +29,7 @@ class ToolStore {
 		lineStyle: "solid",
 		shapeType: "ellipse",
 		drawing: false,
+		croppingId: null,
 	};
 	private listeners = new Set<() => void>();
 
@@ -46,6 +52,27 @@ class ToolStore {
 	getShapeType = () => this.state.shapeType;
 
 	getDrawing = () => this.state.drawing;
+
+	/** 正在裁剪的元素 id；没在裁剪返回 null */
+	getCroppingId = () => this.state.croppingId;
+
+	/** 进入裁剪态：主画布锁住，由裁剪覆盖层接管交互 */
+	startCropping(id: string) {
+		if (this.state.croppingId === id) {
+			return;
+		}
+		this.state = { ...this.state, croppingId: id };
+		this.emit();
+	}
+
+	/** 退出裁剪态 */
+	stopCropping() {
+		if (this.state.croppingId === null) {
+			return;
+		}
+		this.state = { ...this.state, croppingId: null };
+		this.emit();
+	}
 
 	setTool(tool: ToolId) {
 		if (this.state.activeTool === tool) {

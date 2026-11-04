@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { FolderOpen, Plus, Star, Trash2 } from "lucide-react";
 import { getIdentifier } from "@tauri-apps/api/app";
+import { DraftList } from "./draft-box";
+import { SaveTemplateDialog, TemplateList } from "./templates";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -20,15 +22,23 @@ import {
 } from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import {
+	listDraftsInAllDirs,
+	listTemplatesInAllDirs,
+	type DraftEntry,
+	type TemplateEntry,
+} from "@/lib/report/service/library";
+import {
 	addDataDir,
 	listReportsInAllDirs,
 	moveCurrentReportTo,
 	openReport,
 	pickDataDirectory,
 	removeDataDir,
+	saveAsTemplate,
 	setDefaultDataDir,
 	type ReportSummary,
-} from "@/lib/report-service";
+} from "@/lib/report/service";
+import { currentWindowLabel, listClaims } from "@/lib/report/service/session";
 import { isSamePath } from "@/lib/utils";
 import { dataDirsStore, reportStore, saveStateStore } from "@/store";
 
@@ -66,6 +76,14 @@ function dirLabel(path: string, builtin: boolean, identifier: string): string {
 export function OpenReportDrawer() {
 	const [open, setOpen] = useState(false);
 	const [reports, setReports] = useState<ReportSummary[]>([]);
+	/** 未保存的内容（cache 里的草稿），和正式报告一起列出来 */
+	const [drafts, setDrafts] = useState<DraftEntry[]>([]);
+	/** 模板：打开它等于用它的内容新建报告 */
+	const [templates, setTemplates] = useState<TemplateEntry[]>([]);
+	/** 「保存当前报告为模板」的命名框 */
+	const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+	/** reportId → 占用它的窗口：已被打开的条目要标灰 */
+	const [claims, setClaims] = useState<Record<string, string>>({});
 	const [loading, setLoading] = useState(false);
 	/** 待确认的"设为默认"目标目录：有值就弹迁移确认 */
 	const [pendingDefault, setPendingDefault] = useState<string | null>(null);
@@ -80,9 +98,17 @@ export function OpenReportDrawer() {
 	const refresh = useCallback(async () => {
 		setLoading(true);
 		try {
-			setReports(await listReportsInAllDirs());
-		} catch {
-			setReports([]);
+			// 几张表一起取：草稿、模板和正式报告要能对照着看，占用状态决定哪些条目能点
+			const [nextReports, nextDrafts, nextTemplates, nextClaims] = await Promise.all([
+				listReportsInAllDirs().catch(() => [] as ReportSummary[]),
+				listDraftsInAllDirs().catch(() => [] as DraftEntry[]),
+				listTemplatesInAllDirs().catch(() => [] as TemplateEntry[]),
+				listClaims(),
+			]);
+			setReports(nextReports);
+			setDrafts(nextDrafts);
+			setTemplates(nextTemplates);
+			setClaims(nextClaims);
 		} finally {
 			setLoading(false);
 		}
@@ -100,6 +126,14 @@ export function OpenReportDrawer() {
 		setOpen(false);
 		void openReport(folder, { root });
 	};
+
+	/** 数据目录的显示名：草稿和报告列表共用 */
+	const rootLabel = (root: string) => {
+		const dir = dirs.dirs.find((item) => item.path === root);
+		return dirLabel(root, dir?.builtin ?? false, identifier);
+	};
+
+	const selfLabel = currentWindowLabel();
 
 	const handleAddDir = async () => {
 		const selected = await pickDataDirectory();
@@ -154,43 +188,133 @@ export function OpenReportDrawer() {
 			<DrawerContent>
 				<DrawerHeader>
 					<DrawerTitle>打开报告</DrawerTitle>
-					<DrawerDescription>所有数据目录里已保存的报告</DrawerDescription>
+					<DrawerDescription>所有数据目录里的报告、未保存的内容与模板</DrawerDescription>
 				</DrawerHeader>
 
 				<div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
 					{loading && <p className="text-xs text-muted-foreground">正在读取…</p>}
 
-					{!loading && reports.length === 0 && (
-						<p className="text-xs text-muted-foreground">还没有保存过任何报告</p>
-					)}
+					{!loading && (
+						<>
+							<div className="flex items-center gap-1.5">
+								<h3 className="text-xs font-medium text-muted-foreground">未保存的内容</h3>
+								{/* 数量给个角标：这一节默认是空的，有东西时得让用户先看见 */}
+								{drafts.length > 0 && (
+									<span className="rounded bg-primary/10 px-1 text-xs text-primary">
+										{drafts.length}
+									</span>
+								)}
+							</div>
 
-					<div className="flex flex-col gap-1">
-						{reports.map((report) => {
-							const dir = dirs.dirs.find((item) => item.path === report.root);
-							return (
-								<button
-									key={`${report.root}-${report.reportId}`}
-									type="button"
-									onClick={() => handleOpen(report.folder, report.root)}
-									className="flex w-full flex-col gap-0.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent"
-								>
-									<span className="flex items-center gap-1.5">
-										<span className="truncate text-sm font-medium text-foreground">
-											{report.reportName || "未命名报告"}
+							{drafts.length === 0 ? (
+								<p className="mt-1 text-xs text-muted-foreground">没有未保存的内容</p>
+							) : (
+								<div className="mt-1 flex flex-col gap-1">
+									<DraftList
+										drafts={drafts}
+										claims={claims}
+										currentReportId={reportStore.state.reportId}
+										rootLabel={rootLabel}
+										onChanged={() => void refresh()}
+										onOpen={() => setOpen(false)}
+									/>
+								</div>
+							)}
+
+							<Separator className="my-4" />
+
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex items-center gap-1.5">
+									<h3 className="text-xs font-medium text-muted-foreground">模板</h3>
+									{templates.length > 0 && (
+										<span className="rounded bg-primary/10 px-1 text-xs text-primary">
+											{templates.length}
 										</span>
-										{report.root === dirs.defaultPath && (
-											<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
-												默认目录
-											</span>
-										)}
-									</span>
-									<span className="truncate text-xs text-muted-foreground">
-										{dirLabel(report.root, dir?.builtin ?? false, identifier)} · {formatTime(report.updatedAt)}
-									</span>
-								</button>
-							);
-						})}
-					</div>
+									)}
+								</div>
+								{/* 模板没有"另存为"，只能从当前报告存出来 —— 入口就放在列表头上 */}
+								<Button
+									type="button"
+									variant="ghost"
+									size="xs"
+									onClick={() => setTemplateDialogOpen(true)}
+									title="把当前报告的内容存成模板"
+									className="text-muted-foreground hover:text-foreground"
+								>
+									<Plus className="size-3" />
+									保存为模板
+								</Button>
+							</div>
+
+							{templates.length === 0 ? (
+								<p className="mt-1 text-xs text-muted-foreground">
+									还没有模板（把当前报告存成模板，下次直接套用）
+								</p>
+							) : (
+								<div className="mt-1 flex flex-col gap-1">
+									<TemplateList
+										templates={templates}
+										rootLabel={rootLabel}
+										onChanged={() => void refresh()}
+										onOpen={() => setOpen(false)}
+									/>
+								</div>
+							)}
+
+							<Separator className="my-4" />
+
+							<div className="flex items-center gap-1.5">
+								<h3 className="text-xs font-medium text-muted-foreground">已保存的报告</h3>
+							</div>
+
+							{reports.length === 0 ? (
+								<p className="mt-1 text-xs text-muted-foreground">还没有保存过任何报告</p>
+							) : (
+								<div className="mt-1 flex flex-col gap-1">
+									{reports.map((report) => {
+										const owner = claims[report.reportId];
+										const openedHere = owner === selfLabel;
+										return (
+											<button
+												key={`${report.root}-${report.reportId}`}
+												type="button"
+												// 已被某个窗口打开的报告不能再开：两个窗口编辑同一份会互相覆盖
+												disabled={Boolean(owner)}
+												title={
+													owner
+														? openedHere
+															? "已在这个窗口打开"
+															: "已在另一个窗口打开"
+														: undefined
+												}
+												onClick={() => handleOpen(report.folder, report.root)}
+												className="flex w-full flex-col gap-0.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+											>
+												<span className="flex items-center gap-1.5">
+													<span className="truncate text-sm font-medium text-foreground">
+														{report.reportName || "未命名报告"}
+													</span>
+													{owner && (
+														<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
+															{openedHere ? "当前窗口" : "已在其它窗口打开"}
+														</span>
+													)}
+													{!owner && report.root === dirs.defaultPath && (
+														<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-xs text-primary">
+															默认目录
+														</span>
+													)}
+												</span>
+												<span className="truncate text-xs text-muted-foreground">
+													{rootLabel(report.root)} · {formatTime(report.updatedAt)}
+												</span>
+											</button>
+										);
+									})}
+								</div>
+							)}
+						</>
+					)}
 
 					<Separator className="my-4" />
 
@@ -261,6 +385,20 @@ export function OpenReportDrawer() {
 						})}
 					</div>
 				</div>
+
+				{/* 保存为模板：命名框放在抽屉内容里，才能保证它在抽屉关掉时一起卸载 */}
+				<SaveTemplateDialog
+					open={templateDialogOpen}
+					defaultName={reportStore.state.reportName}
+					onSave={async (name) => {
+						const saved = await saveAsTemplate(name);
+						if (saved) {
+							await refresh();
+						}
+						return saved;
+					}}
+					onClose={() => setTemplateDialogOpen(false)}
+				/>
 			</DrawerContent>
 
 			{/* 切换默认目录时的迁移确认：不迁移也允许，报告继续留在原目录 */}

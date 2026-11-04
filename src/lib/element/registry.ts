@@ -13,8 +13,8 @@ import {
 	type DragBox,
 	type ElementDefinition,
 	type ElementGeometry,
-} from "./element-definitions";
-import type { ElementGeometryPatch, ElementStylePatch } from "./emitter";
+} from "./definitions";
+import type { ElementGeometryPatch, ElementStylePatch } from "../emitter";
 import { applyAlpha, toFabricPaint } from "./fill";
 
 export { toFabricPaint } from "./fill";

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { RefObject } from "react";
 import type { Canvas } from "fabric";
 import { isEditableTarget } from "@/lib/dom";
+import { toolStore } from "@/store";
 
 interface UseSpacePanArgs {
 	canvas: Canvas | null;
@@ -83,6 +84,10 @@ export function useSpacePan({ canvas, containerRef, panBy }: UseSpacePanArgs) {
 
 		function handleKeyDown(event: KeyboardEvent) {
 			if (event.code !== "Space") {
+				return;
+			}
+			// 裁剪态有自己的交互，空格平移先让路
+			if (toolStore.getCroppingId()) {
 				return;
 			}
 			// 先记物理状态：哪怕后面因为各种原因不接管，也知道空格是按着的

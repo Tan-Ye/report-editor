@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { saveReport } from "@/lib/report-service";
+import { discardCurrentDraft, saveReport } from "@/lib/report/service";
 import { saveStateStore } from "@/store";
 
 export interface CloseGuard {
@@ -67,6 +67,10 @@ export function useCloseGuard(): CloseGuard {
 	}, [closeNow]);
 
 	const closeWithoutSaving = useCallback(async () => {
+		// 「不保存」就是不要这些改动了：草稿也得删掉。
+		// 留着的话下次打开同一份报告会把它当成崩溃残留恢复回来，
+		// 用户会看到自己刚丢掉的内容又冒出来。
+		await discardCurrentDraft();
 		await closeNow();
 	}, [closeNow]);
 

@@ -8,7 +8,7 @@ import {
 	snapshotElementInfo,
 	type DragBox,
 	type ElementDefinition,
-} from "@/lib/element-registry";
+} from "@/lib/element/registry";
 import { createUniqueId } from "@/lib/utils";
 import { elementObjectMap, historyStore, pageStore, toolStore, type ToolId } from "@/store";
 

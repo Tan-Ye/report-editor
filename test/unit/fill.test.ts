@@ -97,3 +97,43 @@ describe("normalizeFill", () => {
 		expect(normalizeFill({ kind: "unknown" })).toBeUndefined();
 	});
 });
+
+describe("图片裁剪字段", () => {
+	it("合法的 crop 原样保留", () => {
+		expect(
+			normalizeFill({
+				kind: "image",
+				source: "media/a.png",
+				fit: "cover",
+				crop: { x: 10, y: 20, width: 300, height: 200 },
+			}),
+		).toEqual({
+			kind: "image",
+			source: "media/a.png",
+			fit: "cover",
+			crop: { x: 10, y: 20, width: 300, height: 200 },
+		});
+	});
+
+	it("宽高不是正数的 crop 直接丢掉（按整图处理）", () => {
+		expect(
+			normalizeFill({
+				kind: "image",
+				source: "media/a.png",
+				fit: "cover",
+				crop: { x: 0, y: 0, width: 0, height: 10 },
+			}),
+		).toEqual({ kind: "image", source: "media/a.png", fit: "cover" });
+	});
+
+	it("负数坐标夹到 0，小数取整", () => {
+		expect(
+			normalizeFill({
+				kind: "image",
+				source: "media/a.png",
+				fit: "original",
+				crop: { x: -5.4, y: 3.6, width: 100.2, height: 80.5 },
+			}),
+		).toMatchObject({ crop: { x: 0, y: 4, width: 100, height: 81 } });
+	});
+});

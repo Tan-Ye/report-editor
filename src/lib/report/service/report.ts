@@ -1,44 +1,16 @@
+/**
+ * 报告本身：列表、打开、保存、新建、启动恢复。
+ */
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { getIdentifier } from "@tauri-apps/api/app";
-import { join } from "@tauri-apps/api/path";
 import { toast } from "@/components/ui/toast";
-import {
-	applyReportFile,
-	createReportInfo,
-	dataDirsStore,
-	historyStore,
-	pageStore,
-	reportStore,
-	saveStateStore,
-	toReportFile,
-	type ReportFile,
-} from "@/store";
-import { isSamePath } from "./utils";
-import { ensurePreferencesLoaded, savePreferencesNow } from "./ui-preferences";
-import { getReportFolderName, type ReportArea } from "./report-path";
-import { claimReport, releaseHeldReport } from "./report-session";
-import { summarizeIssues, validateReportJson } from "./report-validate";
-import {
-	copyMediaDir,
-	ensureArea,
-	ensureReportFolder,
-	getAbsolutePath,
-	getAppDataRoot,
-	getFolderJsonPath,
-	getReportUpdatedAt,
-	hasReportFile,
-	listReportFolders,
-	moveReportDir,
-	readReportJson,
-	removeReportDir,
-	removeUnreferencedMedia,
-	renamePath,
-	renameReportDir,
-	writeJsonAtomically,
-} from "./report-storage";
+import { applyReportFile, createReportInfo, dataDirsStore, historyStore, pageStore, reportStore, saveStateStore, toReportFile } from "@/store";
+import { ensurePreferencesLoaded } from "../../ui-preferences";
+import { getReportFolderName, type ReportArea } from "../path";
+import { claimReport, releaseHeldReport } from "./session";
+import { summarizeIssues, validateReportJson } from "../validate";
+import { copyMediaDir, ensureArea, ensureReportFolder, getAbsolutePath, getFolderJsonPath, getReportUpdatedAt, hasReportFile, listReportFolders, readReportJson, removeReportDir, removeUnreferencedMedia, renamePath, renameReportDir, writeJsonAtomically } from "./storage";
+import { SAVED_AREA, DRAFT_AREA, getStorageRoot, getCurrentReportRoot, collectMediaReferences, findReportFolder, toErrorMessage } from "./context";
 
-/** 报告列表项 */
 export interface ReportSummary {
 	reportId: string;
 	reportName: string;
@@ -48,22 +20,8 @@ export interface ReportSummary {
 	updatedAt: number | null;
 }
 
-/** 已保存报告统一放 data，未保存的草稿放 cache */
-const SAVED_AREA: ReportArea = "data";
-const DRAFT_AREA: ReportArea = "cache";
+/** 已保存报告放 data，未保存的草稿放 cache，模板放 templates */
 
-/**
- * 当前报告所在的存储根（绝对路径）。
- *
- * 优先用报告自己记录的位置；新报告用"默认数据目录"。
- * 会先等偏好文件加载完 —— 数据目录列表存在那里。
- */
-async function getStorageRoot(): Promise<string> {
-	await ensurePreferencesLoaded();
-	return dataDirsStore.getDefaultPath() || (await getAppDataRoot());
-}
-
-/** 所有数据目录下的报告，按最后修改时间倒序 */
 export async function listReportsInAllDirs(): Promise<ReportSummary[]> {
 	await ensurePreferencesLoaded();
 	const dirs = dataDirsStore.getState().dirs;
@@ -71,142 +29,6 @@ export async function listReportsInAllDirs(): Promise<ReportSummary[]> {
 		dirs.map((dir) => listSavedReports(dir.path).catch(() => [] as ReportSummary[])),
 	);
 	return lists.flat().sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-}
-
-/**
- * 选择数据目录（系统文件夹对话框）。
- *
- * 用户选的是"外层文件夹"，真正的数据根是它下面的**应用标识目录**
- * （`report-editor`）：这样同一个文件夹可以放多个应用的数据，
- * 也避免把 data/、cache/ 直接摊在用户选中的目录里。
- */
-export async function pickDataDirectory(): Promise<string | null> {
-	const selected = await openDialog({ directory: true, multiple: false });
-	if (typeof selected !== "string") {
-		return null;
-	}
-	const trimmed = selected.replace(/[\\/]+$/, "");
-	const identifier = await getIdentifier();
-	// 用户已经选到标识目录里了，就不再套一层
-	const last = trimmed.split(/[\\/]/).pop() ?? "";
-	if (last.toLowerCase() === identifier.toLowerCase()) {
-		return trimmed;
-	}
-	return join(trimmed, identifier);
-}
-
-/** 添加数据目录并落盘 */
-export async function addDataDir(path: string): Promise<boolean> {
-	await ensurePreferencesLoaded();
-	const added = dataDirsStore.addDir(path);
-	if (added) {
-		await savePreferencesNow();
-	}
-	return added;
-}
-
-/** 移除数据目录（只从列表移除，磁盘文件不动） */
-export async function removeDataDir(path: string): Promise<boolean> {
-	await ensurePreferencesLoaded();
-	const removed = dataDirsStore.removeDir(path);
-	if (removed) {
-		await savePreferencesNow();
-	}
-	return removed;
-}
-
-/** 设置默认数据目录（新建报告落这里） */
-export async function setDefaultDataDir(path: string): Promise<boolean> {
-	await ensurePreferencesLoaded();
-	const changed = dataDirsStore.setDefaultDir(path);
-	if (changed) {
-		await savePreferencesNow();
-	}
-	return changed;
-}
-
-/**
- * 把当前报告迁移到另一个数据目录（切换默认目录后用户选择「迁移」时调用）。
- * 迁移的是已保存的报告：草稿没有迁移的意义，它保存时自然会落到新目录。
- */
-export async function moveCurrentReportTo(root: string): Promise<boolean> {
-	const currentRoot = await getCurrentReportRoot();
-	if (isSamePath(currentRoot, root)) {
-		return false;
-	}
-	try {
-		const relative = await getCurrentReportRelativeDir();
-		await moveReportDir(currentRoot, relative, root, relative);
-		reportStore.setRootPath(root);
-		toast.add({ title: "报告已迁移", type: "success" });
-		return true;
-	} catch (error) {
-		toast.add({ title: "迁移失败", description: toErrorMessage(error), type: "error" });
-		return false;
-	}
-}
-
-/**
- * 当前报告所在存储根的绝对路径。
- * 已落盘的报告用它的目录；还没保存过的新报告用默认目录。
- */
-export async function getCurrentReportRoot(): Promise<string> {
-	return reportStore.rootPath ?? (await getStorageRoot());
-}
-
-/** 当前报告相对存储根的目录（`data/xxx` 或 `cache/xxx`） */
-export async function getCurrentReportRelativeDir(): Promise<string> {
-	const { reportName, reportId } = reportStore.state;
-	const root = await getCurrentReportRoot();
-	const area: ReportArea = saveStateStore.getState().persisted ? SAVED_AREA : DRAFT_AREA;
-	const folder =
-		(await findReportFolder(root, area, reportId)) ?? getReportFolderName(reportName, reportId);
-	return `${area}/${folder}`;
-}
-
-/**
- * 当前报告在磁盘上的**绝对目录**。
- * 导入媒体文件、读图片都基于它。
- */
-export async function getCurrentReportDir(): Promise<string> {
-	return getAbsolutePath(await getCurrentReportRoot(), await getCurrentReportRelativeDir());
-}
-
-/**
- * 从文件内容里收集引用到的媒体文件名（`media/<name>` → `<name>`）。
- * 保存后按这个集合清理 media 目录，换图留下的旧文件就不会越攒越多。
- */
-function collectMediaReferences(file: ReportFile): Set<string> {
-	const names = new Set<string>();
-	const addFill = (fill: unknown) => {
-		if (typeof fill !== "object" || fill === null) {
-			return;
-		}
-		const spec = fill as { kind?: unknown; source?: unknown };
-		if (spec.kind !== "image" || typeof spec.source !== "string") {
-			return;
-		}
-		const name = spec.source.split("/").pop();
-		if (name) {
-			names.add(name);
-		}
-	};
-	for (const page of file.pages) {
-		addFill(page.style?.fill);
-		for (const element of page.elements) {
-			addFill(element.attrs.fill);
-		}
-	}
-	return names;
-}
-
-/**
- * 同步定格当前文档为 JSON。
- * 必须在任何 await 之前调用：点了保存之后用户还会继续编辑，
- * 等到 IO 的时候再序列化就会存出"混合状态"。
- */
-function captureDocumentJson(): string {
-	return JSON.stringify(toReportFile(), null, 2);
 }
 
 /**
@@ -229,7 +51,9 @@ export async function saveReport(): Promise<void> {
 	const revision = saveStateStore.beginSave();
 
 	try {
-		const root = await getStorageRoot();
+		// 写回报告**自己所在的**目录：它可能是从自定义数据目录打开的，
+		// 用默认目录会在那边多出一份副本，草稿/媒体也找不到
+		const root = await getCurrentReportRoot();
 		await ensureArea(root, SAVED_AREA);
 		// 已经有目录就写在原目录里：改名后统一在写完之后 relocate，
 		// 否则会先建出一个新名字的目录、再把旧目录改名失败，最后留下两份
@@ -277,37 +101,6 @@ export async function saveReport(): Promise<void> {
 }
 
 /**
- * 草稿自动保存。
- *
- * **已保存的报告也写草稿**：以前只保护"从未保存过"的内容，结果改了一小时没按 Ctrl+S、
- * 程序崩了就全丢。现在草稿对两种报告一视同仁 —— 保存成功后草稿会被清掉，
- * 下次改动再重新攒。
- *
- * 写的是 `cache/<报告目录>/report.json`，和正式文件同一个相对路径，
- * 所以恢复时不用做任何结构转换。
- */
-export async function saveDraft(): Promise<void> {
-	if (saveStateStore.getState().saving) {
-		return;
-	}
-
-	const { reportName, reportId } = reportStore.state;
-	const json = captureDocumentJson();
-	try {
-		const root = await getStorageRoot();
-		await ensureArea(root, DRAFT_AREA);
-		// 同样按 id 复用已有草稿目录，改名不会攒出多个
-		const folder =
-			(await findReportFolder(root, DRAFT_AREA, reportId)) ??
-			getReportFolderName(reportName, reportId);
-		await ensureReportFolder(root, DRAFT_AREA, folder);
-		await writeJsonAtomically(root, getFolderJsonPath(DRAFT_AREA, folder), json);
-	} catch {
-		// 草稿写失败不打扰用户，下次改动会再试
-	}
-}
-
-/**
  * 报告改名后把目录名同步过来。
  * 目录名只是给人看的标签，真正的身份是 report.json 里的 reportId，
  * 所以改名失败也不影响打开，下次保存会再试。
@@ -323,35 +116,14 @@ async function relocateFolderToMatchName(
 		return;
 	}
 	try {
-		await renameReportDir(root, folder, desired);
+		await renameReportDir(root, SAVED_AREA, folder, desired);
 	} catch {
 		// 目标已存在或被占用：保留旧目录名
 	}
 }
 
 /** 按 reportId 找出报告实际所在的目录 */
-async function findReportFolder(
-	root: string,
-	area: ReportArea,
-	reportId: string,
-): Promise<string | null> {
-	const folders = await listReportFolders(root, area);
-	for (const folder of folders) {
-		try {
-			const parsed = JSON.parse(await readReportJson(root, area, folder)) as {
-				reportId?: unknown;
-			};
-			if (parsed.reportId === reportId) {
-				return folder;
-			}
-		} catch {
-			// 坏文件跳过，不影响其它目录
-		}
-	}
-	return null;
-}
 
-/** 保存成功后清掉这份报告遗留的草稿目录 */
 async function removeDraftFolder(root: string, reportId: string): Promise<void> {
 	const folder = await findReportFolder(root, DRAFT_AREA, reportId);
 	if (folder) {
@@ -360,6 +132,7 @@ async function removeDraftFolder(root: string, reportId: string): Promise<void> 
 }
 
 /** 列出已保存的报告，按最后修改时间倒序 */
+
 export async function listSavedReports(root?: string): Promise<ReportSummary[]> {
 	const actualRoot = root ?? (await getStorageRoot());
 	await ensureArea(actualRoot, SAVED_AREA);
@@ -389,6 +162,7 @@ export async function listSavedReports(root?: string): Promise<ReportSummary[]> 
 }
 
 /** 打开一份已保存的报告 */
+
 export async function openReport(
 	folder: string,
 	options: { silent?: boolean; root?: string } = {},
@@ -405,32 +179,37 @@ export async function openReport(
 		// 抢占用：同一份报告不能同时开在两个窗口里（否则保存和会话会互相覆盖）
 		const claim = await claimReport(file.reportId);
 		if (!claim.claimed) {
-			throw new Error(
-				`这份报告已在另一个窗口打开${claim.owner ? `（${claim.owner}）` : ""}，请先关掉那个窗口`,
-			);
+			// 窗口标签是 report-1730… 这种内部名字，给用户看没有意义
+			throw new Error("这份报告已在另一个窗口打开，请先关掉那个窗口");
 		}
 		await releaseHeldReport(file.reportId);
-		applyReportFile(file);
+		// 先定下"我在哪、算不算已保存"，再换内容：
+		// 换内容会立刻重建画布，而画布会按这两个信息去读图片（见 media.loadMediaImage），
+		// 顺序反了第一遍会去默认目录 / cache 里找图，图就白了
 		reportStore.setRootPath(root);
+		saveStateStore.reset(true);
+		applyReportFile(file);
 
 		// 有比正式文件更新的草稿 = 上次是异常退出（或崩溃），把改动接回来
 		const draft = await readNewerDraft(root, file.reportId);
 		const restored = draft ? validateReportJson(draft) : null;
 		if (restored?.file) {
 			applyReportFile(restored.file);
-			reportStore.setRootPath(root);
 		}
 
-		// 换了文档：历史清空，保存状态重置为"已保存且干净"
+		// 换了文档：历史清空
 		historyStore.reset();
-		saveStateStore.reset(true);
 		if (restored?.file) {
-			// 草稿内容还没进正式文件：标脏，这样关窗口会提示、Ctrl+S 会覆盖写回
-			historyStore.commit();
+			// 草稿内容还没进正式文件：标脏，这样关窗口会提示、Ctrl+S 会覆盖写回。
+			// 不能靠 historyStore.commit() —— 它刚在 reset() 里把当前状态记成基准，
+			// 内容没变时是个空操作，脏标记根本标不上。
+			saveStateStore.markDirty();
 		}
 
-		// 只清这份报告自己的草稿：别人的草稿还要留着下次恢复
-		if (file.reportId) {
+		// 只清这份报告自己的草稿：别人的草稿还要留着下次恢复。
+		// 刚恢复出来的那份先留着 —— 在自动保存接手之前它是内存里唯一的一份，
+		// 留着才有后悔药（保存成功时 saveReport 会一起清掉）
+		if (file.reportId && !restored?.file) {
 			await removeDraftFolder(root, file.reportId);
 		}
 
@@ -506,6 +285,7 @@ async function readNewerDraft(root: string, reportId: string): Promise<string | 
 }
 
 /** 新建一份空报告：清空页面、重置历史与保存状态 */
+
 export function createNewReport(options: { silent?: boolean } = {}): void {
 	reportStore.reset(createReportInfo("未命名报告"));
 	pageStore.replacePages([], 0);
@@ -537,12 +317,14 @@ export async function restoreLastReport(): Promise<void> {
 }
 
 /** 数据目录的绝对路径（抽屉里展示） */
+
 export async function getDataDirPath(): Promise<string> {
 	const root = await getCurrentReportRoot();
 	return getAbsolutePath(root, SAVED_AREA);
 }
 
 /** 在文件管理器里定位数据目录 */
+
 export async function revealDataDir(): Promise<void> {
 	try {
 		const root = await getCurrentReportRoot();
@@ -552,8 +334,4 @@ export async function revealDataDir(): Promise<void> {
 	} catch (error) {
 		toast.add({ title: "无法打开目录", description: toErrorMessage(error), type: "error" });
 	}
-}
-
-function toErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

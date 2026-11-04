@@ -1,4 +1,4 @@
-import { getActiveCanvas } from "./canvas-registry";
+import { getActiveCanvas } from "../canvas-registry";
 
 /**
  * Agent 执行期的画布锁。

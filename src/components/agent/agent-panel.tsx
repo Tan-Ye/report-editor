@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
-import { testConnection, type AgentUsage } from "@/lib/agent";
+import { testConnection, type AgentUsage } from "@/lib/agent/llm";
 import {
 	buildHandover,
 	createConversation,
@@ -30,10 +30,10 @@ import {
 	trimMessages,
 	type AgentChatMessage,
 	type AgentConversation,
-} from "@/lib/agent-conversation";
-import { runAgent } from "@/lib/agent-runner";
-import { getDocumentSummary } from "@/lib/report-commands";
-import { getCurrentReportRelativeDir, getCurrentReportRoot } from "@/lib/report-service";
+} from "@/lib/agent/conversation";
+import { runAgent } from "@/lib/agent/runner";
+import { getDocumentSummary } from "@/lib/report/commands";
+import { getCurrentReportRelativeDir, getCurrentReportRoot } from "@/lib/report/service";
 import { savePreferencesNow } from "@/lib/ui-preferences";
 import {
 	AGENT_PROVIDERS,
@@ -390,7 +390,7 @@ export function AgentPanel() {
 									<span className="text-xs text-muted-foreground">接口地址</span>
 									<Input
 										value={settings.baseUrl}
-										placeholder="https://api.deepseek.com/v1"
+										placeholder="https://api.deepseek.com"
 										className="h-7 text-xs"
 										onChange={(event) => agentStore.setBaseUrl(event.target.value)}
 										onBlur={persist}

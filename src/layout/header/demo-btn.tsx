@@ -1,6 +1,6 @@
 import { Sparkles, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { startDemo, stopDemo } from "@/lib/demo-runner";
+import { startDemo, stopDemo } from "@/lib/demo/runner";
 import { useDemoState } from "@/store";
 
 /**

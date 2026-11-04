@@ -1,7 +1,7 @@
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { MAX_RECENT_COLORS } from "@/base/colors";
 import { agentStore, dataDirsStore, preferenceStore, type AgentProvider } from "@/store";
-import { getAppDataRoot } from "./report-storage";
+import { getAppDataRoot } from "./report/service/storage";
 
 /**
  * UI 偏好的落盘位置：和报告草稿目录（cache/<报告目录>/）同级的单个文件。

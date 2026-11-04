@@ -3,9 +3,9 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { baseHeight, baseWidth } from "@/base";
 import { pageStore, reportStore, toReportFile, type PageInfo } from "@/store";
 import { buildHtmlDocument } from "./html-package";
-import { collectImageSources, ensureMediaImages } from "./media";
+import { collectImageSources, ensureMediaImages } from "../media";
 import { dataUrlToBase64, loadImage, renderPageImage, stitchPagesVertically } from "./page-image";
-import { sanitizeFolderName } from "./report-path";
+import { sanitizeFolderName } from "./path";
 
 /**
  * 导出的格式。

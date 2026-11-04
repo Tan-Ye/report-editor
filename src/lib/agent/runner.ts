@@ -1,6 +1,6 @@
-import { chat, type AgentMessage, type AgentUsage } from "./agent";
-import { AGENT_TOOLS, describeToolCall, executeToolCall } from "./agent-tools";
-import { withAgentCanvasLock } from "./agent-session";
+import { chat, type AgentMessage, type AgentUsage } from "./llm";
+import { AGENT_TOOLS, describeToolCall, executeToolCall } from "./tools";
+import { withAgentCanvasLock } from "./session";
 import { agentStore } from "@/store";
 
 /**

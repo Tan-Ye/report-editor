@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base";
 import { toast } from "@/components/ui/toast";
-import { assignProps, createElementFromInfo, toFabricPaint } from "@/lib/element-registry";
+import { assignProps, createElementFromInfo, toFabricPaint } from "@/lib/element/registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { elementObjectMap, historyStore, pageStore, type PageInfo } from "@/store";
 
