@@ -20,6 +20,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // 上次下载但没装成功的安装包，启动时清掉
+        .setup(|_app| {
+            update::cleanup_installers();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             // 存储
@@ -51,8 +56,11 @@ pub fn run() {
             session::release_report,
             session::release_reports_for_window,
             session::list_claims,
-            // 版本检查
+            // 版本检查 / 下载安装
             update::check_latest_release,
+            update::download_update,
+            update::run_installer,
+            update::open_release_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
