@@ -81,7 +81,8 @@ interface LogEntry {
 export function AgentPanel() {
 	const settings = useSyncExternalStore(subscribeAgent, getAgentSnapshot);
 	const [open, setOpen] = useState(false);
-	const [showSettings, setShowSettings] = useState(!agentStore.isReady());
+	// 默认只进去对话；缺 Key 时在抽屉打开的那一刻再摊开设置
+	const [showSettings, setShowSettings] = useState(false);
 	const [showKey, setShowKey] = useState(false);
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [log, setLog] = useState<LogEntry[]>([]);
@@ -138,6 +139,15 @@ export function AgentPanel() {
 		return () => {
 			cancelled = true;
 		};
+	}, [open]);
+
+	// 偏好文件是异步读的：挂载那一刻 Key 还是空的，不能在 useState 里算死。
+	// 每次打开抽屉时按当前配置决定设置面板要不要摊开。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		setShowSettings(agentStore.needsApiKey());
 	}, [open]);
 
 	const preset = getProviderPreset(settings.provider);
