@@ -31,6 +31,8 @@ const MAX_ERROR_BODY: usize = 300;
 pub struct ChatRequest {
     /// 接口根地址，例如 `https://api.deepseek.com/v1`；结尾带不带斜杠都行
     pub base_url: String,
+    /// API Key。本地模型（Ollama / vLLM）通常不校验，留空就不发 Authorization
+    #[serde(default)]
     pub api_key: String,
     /// 模型名，例如 `deepseek-chat`
     pub model: String,
@@ -71,15 +73,36 @@ fn chat_endpoint(base_url: &str) -> Result<String, String> {
     }
 }
 
+/// 用户可以按不同习惯粘贴 Key：带引号、整段 "Bearer xxx"、前后空格。
+/// 这里统一清洗 —— 少一类"看起来填了但就是 401"的问题。
+fn normalize_api_key(raw: &str) -> String {
+    let mut key = raw.trim().trim_matches('"').trim_matches('\'').trim().to_string();
+    if key.len() > 7 && key[..7].eq_ignore_ascii_case("bearer ") {
+        key = key[7..].trim().to_string();
+    }
+    key
+}
+
+/// 把 Key 打码后再回显：能看出"发的是哪个 key"，但不泄露完整内容。
+fn mask_api_key(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    if chars.is_empty() {
+        return "（空）".into();
+    }
+    if chars.len() <= 8 {
+        return format!("（长度 {}）", chars.len());
+    }
+    let head: String = chars[..3].iter().collect();
+    let tail: String = chars[chars.len() - 4..].iter().collect();
+    format!("{head}…{tail}（长度 {}）", chars.len())
+}
+
 /// 发一次对话请求，返回接口的原始 JSON。
 ///
 /// 注意：**错误信息里绝不带 Authorization 头**，接口返回体也只截断回显。
 #[tauri::command]
 pub async fn llm_chat(request: ChatRequest) -> Result<Value, String> {
     let endpoint = chat_endpoint(&request.base_url)?;
-    if request.api_key.trim().is_empty() {
-        return Err("没有填写 API Key".into());
-    }
     if request.model.trim().is_empty() {
         return Err("没有选择模型".into());
     }
@@ -101,9 +124,14 @@ pub async fn llm_chat(request: ChatRequest) -> Result<Value, String> {
         .build()
         .map_err(|error| format!("创建 HTTP 客户端失败：{error}"))?;
 
-    let response = client
-        .post(&endpoint)
-        .bearer_auth(request.api_key.trim())
+    // 有 Key 才发 Authorization：本地模型（Ollama 等）不校验，带了反而可能被拒
+    let api_key = normalize_api_key(&request.api_key);
+    let mut request_builder = client.post(&endpoint);
+    if !api_key.is_empty() {
+        request_builder = request_builder.bearer_auth(&api_key);
+    }
+
+    let response = request_builder
         .json(&body)
         .send()
         .await
@@ -125,6 +153,14 @@ pub async fn llm_chat(request: ChatRequest) -> Result<Value, String> {
 
     if !status.is_success() {
         let brief: String = text.chars().take(MAX_ERROR_BODY).collect();
+        // 401/403 十有八九是 Key 的问题，把"实际发出去的 Key"打码回显，
+        // 一眼能看出是空、是另一个服务商的、还是粘贴时带了前缀
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(format!(
+                "接口返回 {status}：{brief}\n本次发送的 Key：{}",
+                mask_api_key(&api_key)
+            ));
+        }
         return Err(format!("接口返回 {status}：{brief}"));
     }
 
@@ -136,7 +172,7 @@ pub async fn llm_chat(request: ChatRequest) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chat_endpoint, ChatRequest};
+    use super::{chat_endpoint, mask_api_key, normalize_api_key, ChatRequest};
 
     /// 前端传来的是 camelCase（baseUrl / apiKey）：Tauri 的自动改名只作用于
     /// 命令参数名，不会深入嵌套结构体，所以这里必须有 rename_all 兜住。
@@ -182,5 +218,22 @@ mod tests {
     fn rejects_invalid_url() {
         assert!(chat_endpoint("  ").is_err());
         assert!(chat_endpoint("api.deepseek.com").is_err());
+    }
+
+    /// 粘贴习惯容错：引号、Bearer 前缀、空格都要清掉
+    #[test]
+    fn normalizes_pasted_key() {
+        assert_eq!(normalize_api_key("  sk-abc  "), "sk-abc");
+        assert_eq!(normalize_api_key("\"sk-abc\""), "sk-abc");
+        assert_eq!(normalize_api_key("Bearer sk-abc"), "sk-abc");
+        assert_eq!(normalize_api_key("bearer   sk-abc"), "sk-abc");
+    }
+
+    /// 打码只露首三尾四，避免日志/提示里出现完整 Key
+    #[test]
+    fn masks_key_for_error_message() {
+        assert_eq!(mask_api_key(""), "（空）");
+        assert_eq!(mask_api_key("short"), "（长度 5）");
+        assert_eq!(mask_api_key("sk-1234567890abcd"), "sk-…abcd（长度 17）");
     }
 }

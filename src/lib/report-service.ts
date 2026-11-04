@@ -17,6 +17,7 @@ import {
 import { isSamePath } from "./utils";
 import { ensurePreferencesLoaded, savePreferencesNow } from "./ui-preferences";
 import { getReportFolderName, type ReportArea } from "./report-path";
+import { claimReport, releaseHeldReport } from "./report-session";
 import { summarizeIssues, validateReportJson } from "./report-validate";
 import {
 	copyMediaDir,
@@ -401,6 +402,14 @@ export async function openReport(
 			throw new Error(summarizeIssues(validation) || "报告内容无法解析");
 		}
 		const file = validation.file;
+		// 抢占用：同一份报告不能同时开在两个窗口里（否则保存和会话会互相覆盖）
+		const claim = await claimReport(file.reportId);
+		if (!claim.claimed) {
+			throw new Error(
+				`这份报告已在另一个窗口打开${claim.owner ? `（${claim.owner}）` : ""}，请先关掉那个窗口`,
+			);
+		}
+		await releaseHeldReport(file.reportId);
 		applyReportFile(file);
 		reportStore.setRootPath(root);
 

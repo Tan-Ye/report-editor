@@ -7,7 +7,7 @@ mod base64;
 mod commands;
 mod path;
 
-use commands::{agent, export, media, storage};
+use commands::{agent, export, media, session, storage, update};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -46,6 +46,13 @@ pub fn run() {
             export::export_pdf,
             // 大模型（agent）
             agent::llm_chat,
+            // 报告占用：一份报告同时只能在一个窗口打开
+            session::claim_report,
+            session::release_report,
+            session::release_reports_for_window,
+            session::list_claims,
+            // 版本检查
+            update::check_latest_release,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

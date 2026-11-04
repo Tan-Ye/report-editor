@@ -1,4 +1,5 @@
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { EmptyCanvasHint } from "@/components/report/empty-canvas-hint";
 import { CanvasOverlay } from "./canvas-overlay";
 import { ElementContextMenu } from "./element-context-menu";
 import { useBrush } from "./use-brush";
@@ -53,6 +54,8 @@ export function DrawArea() {
 						<div ref={stageRef} className="absolute inset-0" />
 						{/* 刻度 / 参考线覆盖层：默认不吃事件，只有刻度条和参考线热区可交互 */}
 						<CanvasOverlay />
+						{/* 空页提示：只在当前页没有元素时出现 */}
+						<EmptyCanvasHint />
 					</div>
 				}
 			/>

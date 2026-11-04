@@ -61,13 +61,14 @@ interface RawCompletion {
 function requireSettings(): AgentSettings {
 	const settings = agentStore.getState();
 	if (!settings.baseUrl.trim()) {
-		throw new AgentError("没有填写接口地址");
+		throw new AgentError("没有填写接口地址，请先在「设置」里配置");
 	}
 	if (!settings.model.trim()) {
 		throw new AgentError("没有选择模型");
 	}
-	if (!settings.apiKey.trim()) {
-		throw new AgentError("没有填写 API Key");
+	// 本地模型（Ollama 之类）不需要 Key，那就别拦
+	if (agentStore.needsApiKey()) {
+		throw new AgentError("请先设置 API Key：点右上角齿轮，填当前服务商的 Key");
 	}
 	return settings;
 }
@@ -91,7 +92,7 @@ export async function chat(messages: AgentMessage[], options: ChatOptions = {}):
 		raw = await invoke<RawCompletion>("llm_chat", {
 			request: {
 				baseUrl: settings.baseUrl,
-				apiKey: settings.apiKey,
+				apiKey: agentStore.getApiKey(),
 				model: settings.model,
 				messages,
 				tools: useTools ? options.tools : undefined,

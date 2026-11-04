@@ -79,6 +79,23 @@ function resolvePage(pageId?: string): { page: PageInfo; index: number } | null 
 }
 
 /**
+ * 是否抑制历史记录。
+ *
+ * 演示需要"一步一步画出来"：每一步都要立刻重载画布，但整场演示只应该占一步撤销。
+ * 所以执行期间关掉 commit，最后手动补一次 —— 画布会刷新，撤销不会被拆成十几步。
+ */
+let historySuppressed = false;
+
+export function setHistorySuppressed(value: boolean): void {
+	historySuppressed = value;
+}
+
+/** 把当前状态记成一步历史（演示结束后调用） */
+export function commitHistoryNow(): void {
+	historyStore.commit();
+}
+
+/**
  * 写回页面集合并记一步历史。
  * replacePages 会 bump revision → use-page 重载画布 → agent 的改动立刻可见。
  */
@@ -88,7 +105,9 @@ function commitPages(nextPages: PageInfo[], current = currentIndex()): void {
 		return;
 	}
 	pageStore.replacePages(nextPages, current);
-	historyStore.commit();
+	if (!historySuppressed) {
+		historyStore.commit();
+	}
 }
 
 /**

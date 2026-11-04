@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Bot, Check, ChevronDown, Eye, EyeOff, Loader2, Send, Sparkles } from "lucide-react";
+import { Bot, Check, Eye, EyeOff, Loader2, Send, Settings2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	Drawer,
@@ -10,15 +10,37 @@ import {
 	DrawerTrigger,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
-import { testConnection, type AgentMessage, type AgentUsage } from "@/lib/agent";
+import { testConnection, type AgentUsage } from "@/lib/agent";
+import {
+	buildHandover,
+	createConversation,
+	DEFAULT_TOKEN_BUDGET,
+	estimateTokens,
+	loadConversation,
+	saveConversation,
+	trimMessages,
+	type AgentChatMessage,
+	type AgentConversation,
+} from "@/lib/agent-conversation";
 import { runAgent } from "@/lib/agent-runner";
+import { getDocumentSummary } from "@/lib/report-commands";
+import { getCurrentReportRelativeDir, getCurrentReportRoot } from "@/lib/report-service";
 import { savePreferencesNow } from "@/lib/ui-preferences";
 import {
 	AGENT_PROVIDERS,
 	agentStore,
 	getProviderPreset,
+	providerRequiresKey,
+	reportStore,
 	supportsTools,
 	type AgentProvider,
 } from "@/store";
@@ -27,12 +49,18 @@ import { cn } from "@/lib/utils";
 const subscribeAgent = (onStoreChange: () => void) => agentStore.subscribe(onStoreChange);
 const getAgentSnapshot = () => agentStore.getSnapshot();
 
-/** 空状态时给的示例，点一下填进输入框 */
-const SUGGESTIONS = [
-	"做一页封面：标题「季度经营分析」，副标题写 2026 Q3，背景用浅灰渐变",
-	"这一页太空了，加一张数据卡片：标题 + 三个关键指标",
-	"把当前页所有文本改成深色、字号加大一号",
+/** 帮助面板里的示例提示词：点一下填进输入框 */
+const HELP_EXAMPLES = [
+	"做一页封面：标题「2026 年第三季度经营分析」，副标题写日期，右下角放一句结论",
+	"给当前页加三张数据卡片，每张一个指标名和一个数字",
+	"把当前页的标题字号调大一号，整体内容往下移 40",
 ];
+
+/** 能力边界：写给用户看，避免期待错 */
+const HELP_CAPABILITIES = {
+	can: ["加页、切页", "批量加元素（矩形 / 文本 / 形状 / 线条）", "改元素属性（位置、尺寸、颜色、字号）", "渲染当前页看效果"],
+	cannot: ["插入图片（先用矩形占位，之后自己换图）", "改矩形以外的富文本（分段加粗/变色）", "表格与数据绑定", "保存、导出（这些由你点按钮，AI 不碰文件）"],
+};
 
 /** 对话区的一条记录 */
 interface LogEntry {
@@ -55,18 +83,67 @@ export function AgentPanel() {
 	const [open, setOpen] = useState(false);
 	const [showSettings, setShowSettings] = useState(!agentStore.isReady());
 	const [showKey, setShowKey] = useState(false);
-	/** 给模型的对话历史（不含 system，每轮重新拼） */
-	const [conversation, setConversation] = useState<AgentMessage[]>([]);
+	const [helpOpen, setHelpOpen] = useState(false);
 	const [log, setLog] = useState<LogEntry[]>([]);
 	const [draft, setDraft] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [testing, setTesting] = useState(false);
 	const [usage, setUsage] = useState<AgentUsage | null>(null);
+	/** 这个报告的会话（一个报告一个会话文件） */
+	const [session, setSession] = useState<AgentConversation | null>(null);
 	const listRef = useRef<HTMLDivElement | null>(null);
 	const nextId = useRef(0);
+	/**
+	 * 同步的"正在跑"标记。
+	 * `busy` / `testing` 是 React 状态，要等下一次渲染才反映到按钮的 disabled 上，
+	 * 连点两下就会发两次请求 —— 用 ref 才能在同一帧内挡住。
+	 */
+	const inFlightRef = useRef(false);
+
+	/** 当前报告目录（读写会话文件用） */
+	const resolveReportDir = async (): Promise<{ root: string; folder: string } | null> => {
+		try {
+			const root = await getCurrentReportRoot();
+			const folder = await getCurrentReportRelativeDir();
+			return { root, folder };
+		} catch {
+			return null;
+		}
+	};
+
+	// 打开面板时把这个报告的会话读回来：一个报告只有一个会话
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			const dir = await resolveReportDir();
+			const reportId = reportStore.state.reportId;
+			const loaded = dir ? await loadConversation(dir.root, dir.folder) : null;
+			if (cancelled) {
+				return;
+			}
+			const data = loaded ?? createConversation(reportId);
+			setSession(data);
+			setUsage(data.usage);
+			setLog(
+				data.messages.map((message, index) => ({
+					id: index,
+					kind: message.role === "user" ? "user" : "assistant",
+					text: message.content,
+				})),
+			);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
 
 	const preset = getProviderPreset(settings.provider);
 	const ready = agentStore.isReady();
+	/** 当前服务商自己的 Key（不跟别的服务商混用） */
+	const apiKey = settings.apiKeys[settings.provider] ?? "";
 	const toolsOk = supportsTools(settings);
 
 	const pushLog = (entry: Omit<LogEntry, "id">) => {
@@ -86,6 +163,10 @@ export function AgentPanel() {
 	};
 
 	const handleTest = async () => {
+		if (inFlightRef.current) {
+			return;
+		}
+		inFlightRef.current = true;
 		setTesting(true);
 		try {
 			const reply = await testConnection();
@@ -102,32 +183,84 @@ export function AgentPanel() {
 			});
 		} finally {
 			setTesting(false);
+			inFlightRef.current = false;
 		}
 	};
 
 	const handleSend = async () => {
 		const text = draft.trim();
-		if (!text || busy) {
+		if (!text || busy || inFlightRef.current) {
+			return;
+		}
+		// 没配 Key 就明确提示，并把设置摊开 —— 而不是静默失败
+		if (agentStore.needsApiKey()) {
+			setShowSettings(true);
+			toast.add({
+				title: `请设置 ${preset.label} 的 API Key`,
+				description: "点右上角齿轮，在「API Key」里填当前服务商的 Key",
+				type: "warning",
+			});
 			return;
 		}
 		setDraft("");
 		pushLog({ kind: "user", text });
 		setBusy(true);
+
+		// 预算：先裁剪再交接。裁剪够用就不换会话
+		let base = session ?? createConversation(reportStore.state.reportId);
+		let history: AgentChatMessage[] = base.messages;
+		if (estimateTokens(history) > DEFAULT_TOKEN_BUDGET) {
+			history = trimMessages(history);
+			pushLog({ kind: "tool", text: "上下文过长，已裁剪较早的对话" });
+		}
+
+		const actions: { at: number; text: string }[] = [];
 		try {
-			const { messages } = await runAgent(text, conversation, {
-				onStep: (step) => {
-					if (step.kind === "assistant") {
-						pushLog({ kind: "assistant", text: step.text });
-					} else if (step.kind === "tool") {
-						pushLog({ kind: "tool", text: step.text });
-					} else if (step.kind === "render") {
-						pushLog({ kind: "image", imageUrl: step.imageUrl, text: step.text });
-					} else if (step.kind === "usage") {
-						setUsage(step.usage);
-					}
+			const { messages } = await runAgent(
+				text,
+				history.map((message) => ({ role: message.role, content: message.content })),
+				{
+					onStep: (step) => {
+						if (step.kind === "assistant") {
+							pushLog({ kind: "assistant", text: step.text });
+						} else if (step.kind === "tool") {
+							pushLog({ kind: "tool", text: step.text });
+							actions.push({ at: Date.now(), text: step.text });
+						} else if (step.kind === "render") {
+							pushLog({ kind: "image", imageUrl: step.imageUrl, text: step.text });
+						} else if (step.kind === "usage") {
+							setUsage((prev) => ({
+								promptTokens: (prev?.promptTokens ?? 0) + step.usage.promptTokens,
+								completionTokens: (prev?.completionTokens ?? 0) + step.usage.completionTokens,
+								totalTokens: (prev?.totalTokens ?? 0) + step.usage.totalTokens,
+							}));
+						}
+					},
 				},
-			});
-			setConversation(messages);
+			);
+
+			// 落盘：只存自然语言消息和动作摘要，不存工具原始结果
+			const nextSession: AgentConversation = {
+				...base,
+				reportId: reportStore.state.reportId || base.reportId,
+				updatedAt: Date.now(),
+				usage: {
+					promptTokens: (base.usage.promptTokens ?? 0) + (usage?.promptTokens ?? 0),
+					completionTokens: (base.usage.completionTokens ?? 0) + (usage?.completionTokens ?? 0),
+					totalTokens: (base.usage.totalTokens ?? 0) + (usage?.totalTokens ?? 0),
+				},
+				messages: messages
+					.filter((message) => message.role === "user" || message.role === "assistant")
+					.map((message) => ({ role: message.role as "user" | "assistant", content: message.content })),
+				actions: [...base.actions, ...actions].slice(-200),
+			};
+			setSession(nextSession);
+			const dir = await resolveReportDir();
+			if (dir) {
+				await saveConversation(dir.root, dir.folder, nextSession).catch(() => {
+					// 会话存不下来不该影响编辑，静默失败
+				});
+			}
 		} catch (error) {
 			pushLog({
 				kind: "tool",
@@ -140,6 +273,35 @@ export function AgentPanel() {
 			});
 		} finally {
 			setBusy(false);
+			inFlightRef.current = false;
+		}
+	};
+
+	/**
+	 * 重开会话：把当前会话归档，用**程序拼的交接摘要**开一段新会话。
+	 * 摘要不是模型写的 —— 模型写要额外跑一轮，还容易漏掉实际做过的事。
+	 */
+	const handleRestart = async () => {
+		const base = session ?? createConversation(reportStore.state.reportId);
+		if (base.messages.length === 0) {
+			return;
+		}
+		const handover = buildHandover(base, getDocumentSummary());
+		const next: AgentConversation = {
+			...createConversation(base.reportId),
+			sessionIndex: base.sessionIndex + 1,
+			messages: [{ role: "user", content: handover }],
+			usage: base.usage,
+			archives: [...base.archives, { at: Date.now(), handover }],
+		};
+		setSession(next);
+		setLog([
+			{ id: 0, kind: "tool", text: `—— 上一段会话已归档（第 ${base.sessionIndex} 段）——` },
+			{ id: 1, kind: "assistant", text: handover },
+		]);
+		const dir = await resolveReportDir();
+		if (dir) {
+			await saveConversation(dir.root, dir.folder, next).catch(() => {});
 		}
 	};
 
@@ -171,45 +333,57 @@ export function AgentPanel() {
 				<div className="flex min-h-0 flex-1 flex-col">
 					{/* ── 模型设置 ───────────────────────────── */}
 					<div className="shrink-0 px-4">
-						<button
-							type="button"
-							onClick={() => setShowSettings((value) => !value)}
-							className="flex w-full items-center justify-between rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60"
-						>
-							<span className="flex items-center gap-1.5">
-								<span className="font-medium text-foreground">{preset.label}</span>
-								<span className="truncate">{settings.model || "未选择模型"}</span>
-								{ready && <Check className="size-3 text-primary" aria-label="已配置" />}
-							</span>
-							<ChevronDown
-								className={cn("size-3 transition-transform", showSettings && "rotate-180")}
-							/>
-						</button>
+						{/* 模型：下拉列表，按服务商分组；选哪一项就同时切服务商 + 模型 */}
+						<div className="flex items-center gap-1.5">
+							<select
+								aria-label="选择模型"
+								value={settings.provider === "custom" ? "custom:" : `${settings.provider}:${settings.model}`}
+								onChange={(event) => {
+									const [provider, model] = event.target.value.split(":");
+									agentStore.setProvider(provider as AgentProvider);
+									if (model) {
+										agentStore.setModel(model);
+									}
+									persist();
+								}}
+								className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:border-primary/60"
+							>
+								{AGENT_PROVIDERS.map((item) => (
+									<optgroup key={item.value} label={item.label}>
+										{item.models.length > 0 ? (
+											item.models.map((model) => (
+												<option key={model} value={`${item.value}:${model}`}>
+													{model}
+													{(item.noTools ?? []).includes(model) ? "（不支持工具）" : ""}
+												</option>
+											))
+										) : (
+											<option value="custom:">自定义模型…</option>
+										)}
+									</optgroup>
+								))}
+							</select>
+
+							<Button
+								type="button"
+								variant={showSettings ? "secondary" : "ghost"}
+								size="icon-sm"
+								aria-label="模型设置"
+								title="设置接口地址、API Key"
+								onClick={() => setShowSettings((value) => !value)}
+								className="shrink-0 text-muted-foreground"
+							>
+								<Settings2 className="size-3.5" />
+							</Button>
+							{ready && <Check className="size-3 shrink-0 text-primary" aria-label="已配置" />}
+						</div>
 
 						{showSettings && (
 							<div className="mt-2 flex flex-col gap-2 rounded-lg border border-border/70 bg-background p-2.5">
 								<div className="flex flex-col gap-1">
-									<span className="text-xs text-muted-foreground">服务商</span>
-									<div className="grid grid-cols-3 gap-1">
-										{AGENT_PROVIDERS.map((item) => (
-											<Button
-												key={item.value}
-												type="button"
-												size="xs"
-												variant={settings.provider === item.value ? "secondary" : "ghost"}
-												onClick={() => {
-													agentStore.setProvider(item.value as AgentProvider);
-													persist();
-												}}
-												className={cn(
-													"justify-center",
-													settings.provider === item.value && "text-primary",
-												)}
-											>
-												{item.label.split("（")[0]}
-											</Button>
-										))}
-									</div>
+									<span className="text-xs text-muted-foreground">
+										{preset.label} · 模型设置
+									</span>
 								</div>
 
 								<label className="flex flex-col gap-1">
@@ -223,52 +397,28 @@ export function AgentPanel() {
 									/>
 								</label>
 
-								<div className="flex flex-col gap-1">
-									<span className="text-xs text-muted-foreground">模型</span>
-									{preset.models.length > 0 ? (
-										<div className="flex flex-wrap gap-1">
-											{preset.models.map((model) => {
-												const blocked = (preset.noTools ?? []).includes(model);
-												return (
-													<Button
-														key={model}
-														type="button"
-														size="xs"
-														variant={settings.model === model ? "secondary" : "ghost"}
-														onClick={() => {
-															agentStore.setModel(model);
-															persist();
-														}}
-														className={cn(
-															"justify-center",
-															settings.model === model && "text-primary",
-														)}
-														title={blocked ? "该模型不支持工具调用，只能聊天" : undefined}
-													>
-														{model}
-														{blocked && <span className="text-muted-foreground">·无工具</span>}
-													</Button>
-												);
-											})}
-										</div>
-									) : (
-										<Input
-											value={settings.model}
-											placeholder="例如 llama3.1 / gpt-4o-mini"
-											className="h-7 text-xs"
-											onChange={(event) => agentStore.setModel(event.target.value)}
-											onBlur={persist}
-										/>
-									)}
-								</div>
+								<label className="flex flex-col gap-1">
+									<span className="text-xs text-muted-foreground">模型名</span>
+									<Input
+										value={settings.model}
+										placeholder="deepseek-chat"
+										className="h-7 text-xs"
+										onChange={(event) => agentStore.setModel(event.target.value)}
+										onBlur={persist}
+									/>
+								</label>
 
 								<label className="flex flex-col gap-1">
 									<span className="text-xs text-muted-foreground">API Key</span>
 									<div className="flex items-center gap-1">
 										<Input
 											type={showKey ? "text" : "password"}
-											value={settings.apiKey}
-											placeholder="sk-…"
+											value={apiKey}
+											placeholder={
+												providerRequiresKey(settings.provider, settings.baseUrl)
+													? "sk-…"
+													: "本地模型可留空"
+											}
 											className="h-7 text-xs"
 											onChange={(event) => agentStore.setApiKey(event.target.value)}
 											onBlur={persist}
@@ -287,6 +437,14 @@ export function AgentPanel() {
 								</label>
 
 								<p className="text-xs leading-relaxed text-muted-foreground">
+									{apiKey
+										? `当前：${preset.label} · Key 已设置（长度 ${apiKey.length}）`
+										: providerRequiresKey(settings.provider, settings.baseUrl)
+											? `当前：${preset.label} · Key 未设置，必须先填才能发送`
+											: `当前：${preset.label} · 本机地址，可以不填 Key`}
+								</p>
+
+								<p className="text-xs leading-relaxed text-muted-foreground">
 									{preset.note ?? "Key 只保存在本机，不会写进报告文件"}
 								</p>
 
@@ -294,7 +452,7 @@ export function AgentPanel() {
 									type="button"
 									size="sm"
 									variant="outline"
-									disabled={!ready || testing}
+									disabled={testing || !settings.baseUrl.trim() || !settings.model.trim()}
 									onClick={() => void handleTest()}
 									className="w-full justify-center"
 								>
@@ -310,24 +468,21 @@ export function AgentPanel() {
 					{/* ── 操作记录 ─────────────────────────── */}
 					<div ref={listRef} className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-4">
 						{log.length === 0 ? (
-							<div className="flex flex-col gap-2">
-								<div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-6 text-center">
-									<Sparkles className="size-5 text-muted-foreground/70" />
-									<p className="text-xs font-medium text-foreground">试试这样说</p>
-									<p className="text-xs leading-relaxed text-muted-foreground">
-										它会直接改画布，每做一步都会列在这里
-									</p>
-								</div>
-								{SUGGESTIONS.map((text) => (
-									<button
-										key={text}
-										type="button"
-										onClick={() => setDraft(text)}
-										className="rounded-lg border border-border/70 px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-									>
-										{text}
-									</button>
-								))}
+							<div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-6 text-center">
+								<Sparkles className="size-5 text-muted-foreground/70" />
+								<p className="text-xs font-medium text-foreground">说一句话，它就动手改画布</p>
+								<p className="text-xs leading-relaxed text-muted-foreground">
+									每做一步都会列在这里；点下面的「示例提示词」看能怎么说
+								</p>
+								<Button
+									type="button"
+									size="xs"
+									variant="outline"
+									onClick={() => setHelpOpen(true)}
+									className="mt-1"
+								>
+									示例提示词
+								</Button>
 							</div>
 						) : (
 							<div className="flex flex-col gap-2.5">
@@ -455,7 +610,7 @@ export function AgentPanel() {
 							<Button
 								type="button"
 								size="icon"
-								disabled={!ready || busy || !draft.trim()}
+								disabled={busy || !draft.trim()}
 								aria-label="发送"
 								onClick={() => void handleSend()}
 								className="shrink-0"
@@ -464,23 +619,86 @@ export function AgentPanel() {
 							</Button>
 						</div>
 						{log.length > 0 && (
-							<Button
-								type="button"
-								variant="ghost"
-								size="xs"
-								onClick={() => {
-									setLog([]);
-									setConversation([]);
-									setUsage(null);
-								}}
-								className="mt-1 text-muted-foreground hover:text-foreground"
-							>
-								清空对话
-							</Button>
+							<div className="mt-1 flex items-center gap-1">
+								<Button
+									type="button"
+									variant="ghost"
+									size="xs"
+									disabled={busy}
+									onClick={() => void handleRestart()}
+									title="把当前会话归档，用交接摘要开一段新会话（上下文太长时用）"
+									className="text-muted-foreground hover:text-foreground"
+								>
+									重开会话
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="xs"
+									onClick={() => {
+										setLog([]);
+										setUsage(null);
+									}}
+									className="text-muted-foreground hover:text-foreground"
+								>
+									清空显示
+								</Button>
+								{session && (
+									<span className="ml-auto text-xs text-muted-foreground">
+										第 {session.sessionIndex} 段 · {session.messages.length} 条 · ~
+										{estimateTokens(session.messages)} tokens
+									</span>
+								)}
+							</div>
 						)}
 					</div>
 				</div>
 			</DrawerContent>
+
+			{/* 示例提示词与能力边界：不占对话框的位置，点按钮才出现 */}
+			<Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+				<DialogContent className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>能这样使唤它</DialogTitle>
+						<DialogDescription>点一条就填进输入框，改成你要的数字再发</DialogDescription>
+					</DialogHeader>
+
+					<div className="flex flex-col gap-2">
+						{HELP_EXAMPLES.map((text) => (
+							<button
+								key={text}
+								type="button"
+								onClick={() => {
+									setDraft(text);
+									setHelpOpen(false);
+								}}
+								className="rounded-lg border border-border/70 px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+							>
+								{text}
+							</button>
+						))}
+					</div>
+
+					<div className="grid grid-cols-2 gap-2 text-xs">
+						<div className="flex flex-col gap-1">
+							<span className="font-medium text-foreground">现在能做</span>
+							{HELP_CAPABILITIES.can.map((item) => (
+								<span key={item} className="text-muted-foreground">
+									· {item}
+								</span>
+							))}
+						</div>
+						<div className="flex flex-col gap-1">
+							<span className="font-medium text-foreground">还做不了</span>
+							{HELP_CAPABILITIES.cannot.map((item) => (
+								<span key={item} className="text-muted-foreground">
+									· {item}
+								</span>
+							))}
+						</div>
+					</div>
+				</DialogContent>
+			</Dialog>
 		</Drawer>
 	);
 }

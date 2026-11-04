@@ -1,16 +1,17 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
- * 更新清单地址。约定返回：
+ * 更新检查：和 GitHub 上最新的 release 比版本号。
  *
- * ```json
- * { "version": "0.2.0", "notes": "更新说明", "url": "下载页地址" }
- * ```
+ * 查询走 Rust 命令（`check_latest_release`）：webview 里直接 fetch GitHub API
+ * 会被 CORS 拦，而且 GitHub 要求带 User-Agent。
  *
- * 现在是空串 = 没有配置更新源，检查会直接返回「暂不可用」。
- * 以后发布时把地址填进来，下面整套逻辑不用改。
+ * 故意不引 tauri-plugin-updater：那套要签名密钥和 latest.json 托管，
+ * 现在只解决"用户怎么知道有新版本"，下载交给发布页。
+ *
+ * 返回的 `url` 是发布页地址，界面上让用户点过去手动装 —— 不做静默升级。
  */
-export const UPDATE_MANIFEST_URL = "";
 
 export interface UpdateInfo {
 	current: string;
@@ -37,6 +38,8 @@ export async function getAppVersion(): Promise<string> {
 export function isNewerVersion(latest: string, current: string): boolean {
 	const parse = (value: string) =>
 		value
+			.trim()
+			.replace(/^v/i, "")
 			.split(/[.+-]/)
 			.map((part) => Number.parseInt(part, 10))
 			.filter((part) => Number.isFinite(part));
@@ -54,45 +57,31 @@ export function isNewerVersion(latest: string, current: string): boolean {
 	return false;
 }
 
-/**
- * 检查更新。
- *
- * 故意不引 tauri-plugin-updater：那套要签名密钥和构建产物托管，
- * 现在连发布渠道都还没有。这里先用「拉一个 JSON 清单 + 版本号比较」，
- * 够用来做「有新版本就提示」，也方便以后换成真正的更新器。
- */
+/** 查询并比较版本。任何失败都归到 unavailable，不抛异常。 */
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
 	const current = await getAppVersion();
 
-	if (!UPDATE_MANIFEST_URL) {
-		return { status: "unavailable", reason: "还没有配置更新源地址" };
-	}
-
 	try {
-		const response = await fetch(UPDATE_MANIFEST_URL, { cache: "no-store" });
-		if (!response.ok) {
-			return { status: "unavailable", reason: `更新源返回 ${response.status}` };
-		}
-		const raw = (await response.json()) as {
-			version?: unknown;
-			notes?: unknown;
-			url?: unknown;
-		};
-		if (typeof raw.version !== "string" || !raw.version.trim()) {
-			return { status: "unavailable", reason: "更新清单里没有版本号" };
-		}
+		const release = await invoke<{
+			version: string;
+			url: string;
+			notes?: string;
+			publishedAt?: string;
+		}>("check_latest_release");
 
-		const latest = raw.version.trim();
-		if (!isNewerVersion(latest, current)) {
+		if (!release?.version) {
+			return { status: "unavailable", reason: "发布信息里没有版本号" };
+		}
+		if (!isNewerVersion(release.version, current)) {
 			return { status: "up-to-date", current };
 		}
 		return {
 			status: "available",
 			info: {
 				current,
-				latest,
-				notes: typeof raw.notes === "string" ? raw.notes : undefined,
-				url: typeof raw.url === "string" ? raw.url : undefined,
+				latest: release.version,
+				notes: release.notes || undefined,
+				url: release.url || undefined,
 			},
 		};
 	} catch (error) {

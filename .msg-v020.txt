@@ -1,0 +1,26 @@
+feat: AI 助手、示例演示、多窗口与版本检查（v0.2.0 前置）
+
+AI 助手
+- commands/agent.rs：OpenAI 兼容转发，地址容错、超时、错误分层，不回显 Authorization
+- 工具层 report-commands.ts（一个命令 = 一步撤销，强制走 replacePages 触发画布重载）
+- agent-tools.ts：8 个工具，失败作为 tool 消息回填让模型自纠
+- agent-runner.ts：系统提示 + 最多 6 轮 + 画布锁 + 结果截断
+- 面板：模型下拉、按服务商分开的 Key、会话持久化与交接、示例提示词对话框
+- 「生成图片」开关：关掉时用矩形占位，省 token 也不用模型猜媒体路径
+
+示例演示
+- 拆成 8 步逐步生成，期间锁画布、可停止，整场只占一步撤销
+- 顶栏常显入口 + 空页提示卡
+
+多窗口
+- 「新建」开新窗口（?new=1 跳过恢复），capabilities 授权 report-* 窗口
+- 一份报告同时只能在一个窗口打开：Rust 占用登记表 + 关窗口释放
+
+检查更新
+- commands/update.rs 查 GitHub 最新 release，update-service 比版本号后跳发布页
+- 顺手删掉重复实现的 update-check.ts / 顶栏按钮，统一走关于对话框
+
+文档与测试
+- README 更新；新增 docs/architecture.md、docs/rebuild-guide.md
+- CHANGELOG 补 v0.2.0
+- 单测 75 个用例全绿；Rust 侧 8 个用例（端点、camelCase、Key 清洗、占用登记）

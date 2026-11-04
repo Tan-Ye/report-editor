@@ -6,6 +6,7 @@
  */
 export * from "./agent";
 export * from "./brush";
+export * from "./demo";
 export * from "./coordination";
 export * from "./data-dirs";
 export * from "./element";

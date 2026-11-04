@@ -27,7 +27,10 @@ interface PreferenceFile {
 		provider?: unknown;
 		baseUrl?: unknown;
 		model?: unknown;
+		/** 旧格式：单个 Key，读的时候归到当时的服务商 */
 		apiKey?: unknown;
+		/** 新格式：每个服务商各自的 Key */
+		apiKeys?: Record<string, unknown>;
 		generateImages?: unknown;
 	};
 }
@@ -60,14 +63,25 @@ async function load(): Promise<void> {
 		if (agent && typeof agent === "object") {
 			const provider: AgentProvider =
 				agent.provider === "openai" || agent.provider === "custom" ? agent.provider : "deepseek";
+			const apiKeys: Record<string, string> = {};
+			if (agent.apiKeys && typeof agent.apiKeys === "object") {
+				for (const key of ["deepseek", "openai", "custom"] as const) {
+					const value = agent.apiKeys[key];
+					if (typeof value === "string") {
+						apiKeys[key] = value;
+					}
+				}
+			}
 			agentStore.replace({
 				provider,
 				baseUrl: typeof agent.baseUrl === "string" ? agent.baseUrl : undefined,
 				model: typeof agent.model === "string" ? agent.model : undefined,
+				apiKeys: apiKeys as never,
+				// 旧版本存的是单个 apiKey，replace() 里会把它归到当时的服务商
 				apiKey: typeof agent.apiKey === "string" ? agent.apiKey : undefined,
 				generateImages:
 					typeof agent.generateImages === "boolean" ? agent.generateImages : undefined,
-			});
+			} as never);
 		}
 	} catch (error) {
 		// 偏好读不出来不该影响使用，按空处理即可

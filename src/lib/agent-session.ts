@@ -15,11 +15,16 @@ import { getActiveCanvas } from "./canvas-registry";
  * 注意：这是**执行层**的职责，命令层（report-commands）不碰画布 ——
  * 这样命令层仍然能脱离 UI 跑测试。
  */
-export async function withAgentCanvasLock<T>(task: () => Promise<T> | T): Promise<T> {
+/**
+ * 获取画布锁，返回"释放"函数。
+ *
+ * 适合长时间任务（例如示例演示要分十几步、每步之间停顿），
+ * 需要在任务开始时加锁、结束时释放。
+ */
+export function acquireCanvasLock(): () => void {
 	const canvas = getActiveCanvas();
 	if (!canvas) {
-		// 没有画布（例如测试环境）就直接执行
-		return await task();
+		return () => {};
 	}
 
 	const previous = {
@@ -33,12 +38,24 @@ export async function withAgentCanvasLock<T>(task: () => Promise<T> | T): Promis
 	canvas.skipTargetFind = true;
 	canvas.isDrawingMode = false;
 
-	try {
-		return await task();
-	} finally {
+	let released = false;
+	return () => {
+		if (released) {
+			return;
+		}
+		released = true;
 		canvas.selection = previous.selection;
 		canvas.skipTargetFind = previous.skipTargetFind;
 		canvas.isDrawingMode = previous.drawingMode;
 		canvas.requestRenderAll();
+	};
+}
+
+export async function withAgentCanvasLock<T>(task: () => Promise<T> | T): Promise<T> {
+	const release = acquireCanvasLock();
+	try {
+		return await task();
+	} finally {
+		release();
 	}
 }
