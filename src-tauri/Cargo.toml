@@ -25,4 +25,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-fs = "2"
 sha2 = "0.10"
+# 大模型请求由 Rust 发（webview 会被 CORS 拦），默认 TLS 在 Windows 上走 schannel，不需要额外装 OpenSSL
+reqwest = { version = "0.12", features = ["json"] }
 

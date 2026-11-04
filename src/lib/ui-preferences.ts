@@ -1,13 +1,13 @@
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { MAX_RECENT_COLORS } from "@/base/colors";
-import { dataDirsStore, preferenceStore } from "@/store";
+import { agentStore, dataDirsStore, preferenceStore, type AgentProvider } from "@/store";
 import { getAppDataRoot } from "./report-storage";
 
 /**
  * UI 偏好的落盘位置：和报告草稿目录（cache/<报告目录>/）同级的单个文件。
  * 它不是文档内容，换台机器/换个人就该有不同的一套。
  *
- * 现在存两样东西：最近使用色、数据目录列表。
+ * 现在存三样东西：最近使用色、数据目录列表、agent 设置（含 API Key）。
  */
 const PREFERENCES_PATH = "cache/ui-preferences.json";
 const PREFERENCES_DIR = "cache";
@@ -23,6 +23,13 @@ let loading: Promise<void> | null = null;
 interface PreferenceFile {
 	recentColors?: unknown;
 	dataDirs?: { dirs?: unknown; defaultPath?: unknown };
+	agent?: {
+		provider?: unknown;
+		baseUrl?: unknown;
+		model?: unknown;
+		apiKey?: unknown;
+		generateImages?: unknown;
+	};
 }
 
 async function readPreferencesFile(): Promise<PreferenceFile> {
@@ -47,6 +54,21 @@ async function load(): Promise<void> {
 			typeof raw.dataDirs?.defaultPath === "string" ? raw.dataDirs.defaultPath : "";
 		// 内置目录的路径是环境决定的，不落盘
 		dataDirsStore.init(await getAppDataRoot(), { dirs: savedDirs, defaultPath });
+
+		// agent 设置：模型 / 地址 / Key 都算本地偏好，不进报告
+		const agent = raw.agent;
+		if (agent && typeof agent === "object") {
+			const provider: AgentProvider =
+				agent.provider === "openai" || agent.provider === "custom" ? agent.provider : "deepseek";
+			agentStore.replace({
+				provider,
+				baseUrl: typeof agent.baseUrl === "string" ? agent.baseUrl : undefined,
+				model: typeof agent.model === "string" ? agent.model : undefined,
+				apiKey: typeof agent.apiKey === "string" ? agent.apiKey : undefined,
+				generateImages:
+					typeof agent.generateImages === "boolean" ? agent.generateImages : undefined,
+			});
+		}
 	} catch (error) {
 		// 偏好读不出来不该影响使用，按空处理即可
 		console.error("读取 UI 偏好失败", error);
@@ -68,6 +90,8 @@ export async function savePreferencesNow(): Promise<void> {
 		const payload = {
 			recentColors: preferenceStore.getState().recentColors,
 			dataDirs: dataDirsStore.toJSON(),
+			// agent 设置也存这里：模型、地址、API Key（明文，个人使用场景）
+			agent: agentStore.getState(),
 		};
 		await writeTextFile(PREFERENCES_PATH, JSON.stringify(payload, null, 2), {
 			baseDir: BASE_DIR,

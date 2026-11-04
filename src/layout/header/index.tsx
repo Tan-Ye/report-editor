@@ -1,3 +1,4 @@
+import { AgentPanel } from "@/components/agent/agent-panel";
 import { ToolsBtn } from "./tools-btn";
 import { ElementBtn } from "./element-btn";
 import { ExportBtn } from "./export-btn";
@@ -21,7 +22,8 @@ export function Header() {
         <HistoryBtn />
         <ElementBtn />
       </div>
-      <div className="flex min-w-0 items-center justify-end">
+      <div className="flex min-w-0 items-center justify-end gap-1">
+        <AgentPanel />
         <ProjectBtn />
       </div>
     </header>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import * as fabric from "fabric";
 import { baseHeight, baseWidth } from "@/base/index";
+import { setActiveCanvas } from "@/lib/canvas-registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { computeViewportFit } from "@/lib/utils";
 import { viewportStore, zoomStore } from "@/store";
@@ -166,12 +167,15 @@ export function useCanvas(): CanvasHandle {
 			container.removeEventListener("wheel", handleWheel);
 			unsubscribeZoom();
 			resizeObserver.disconnect();
+			// agent 执行器通过这里拿画布，销毁时登记处也要清掉
+			setActiveCanvas(null);
 			void fabricCanvas.dispose();
 			// dispose 不保证把 wrapper 从 DOM 上摘掉，这里补一刀，
 			// 否则热更新/重挂载会叠出第二个画布
 			wrapper.remove();
 		};
 
+		setActiveCanvas(fabricCanvas);
 		setCanvas(fabricCanvas);
 		setPage(pageRect);
 	}, []);
