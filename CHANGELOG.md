@@ -3,6 +3,12 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-11-04
+
+### 修复
+
+- AI 助手抽屉在已配置 API Key 时仍会默认展开设置：改为每次打开抽屉时按当前配置判断，只有缺 Key 才摊开
+
 ## [0.2.0] - 2026-11-04
 
 加入 AI 助手，以及一批可用性补强。

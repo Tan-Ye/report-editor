@@ -1,6 +1,6 @@
 [package]
 name = "report-editor"
-version = "0.2.0"
+version = "0.2.1"
 description = "多页报表编辑器：画布设计、保存、导出 PDF / 图片 / HTML"
 authors = ["Tan-Ye"]
 edition = "2021"
