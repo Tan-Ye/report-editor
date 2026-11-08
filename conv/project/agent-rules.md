@@ -53,6 +53,9 @@
   不要在画布 hook 或属性面板里另写一套构造逻辑。
 - 判断元素功能一律看 `elementType`，**禁止 `instanceof fabric.Rect/Image`**：
   图片元素内部就是一个带图片填充的 `Rect`。
+- 文本元素是自绘的 `RichTextBox`（段落模型 + 逐行 fillText），**不要用 `fabric.Textbox`，
+  也不要包 `fabric.Group`**：排版在 `rich-layout.ts`、渲染在 `rich-object.ts`、
+  编辑覆盖层在 `rich-text-editor.tsx`，数据在 `rich-text.ts`（详见 NOTES §40）。
 
 ## 4. 状态、历史、画布的分工
 

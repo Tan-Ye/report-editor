@@ -86,8 +86,8 @@ export function useSpacePan({ canvas, containerRef, panBy }: UseSpacePanArgs) {
 			if (event.code !== "Space") {
 				return;
 			}
-			// 裁剪态有自己的交互，空格平移先让路
-			if (toolStore.getCroppingId()) {
+			// 裁剪/编辑态有自己的交互，空格平移先让路
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				return;
 			}
 			// 先记物理状态：哪怕后面因为各种原因不接管，也知道空格是按着的

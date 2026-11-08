@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 import { useKeyPress } from "ahooks";
-import { Brush, MousePointer2, Square, Type } from "lucide-react";
+import { Brush, MousePointer2, Pilcrow, Square, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   LINE_STYLE_OPTIONS,
@@ -12,6 +12,7 @@ import {
 } from "@/base/elements";
 import { toolStore, type ToolId } from "@/store";
 import { isEditableTarget } from "@/lib/dom";
+import { ELEMENT_COMMAND, emitter } from "@/lib/emitter";
 import { cn } from "@/lib/utils";
 import { ToolMenu } from "./tool-menu";
 
@@ -160,6 +161,12 @@ export function ToolsBtn() {
         onClick={() => selectTool("text")}
       >
         <Type className="size-4" />
+      </ToolButton>
+      <ToolButton
+        label="插入富文本（页面中央，支持段落 / 列表 / 链接）"
+        onClick={() => emitter.emit(ELEMENT_COMMAND, { type: "insert-text" })}
+      >
+        <Pilcrow className="size-4" />
       </ToolButton>
       <ToolButton
         label="画笔工具 (B)"

@@ -16,6 +16,7 @@ import {
 } from "./definitions";
 import type { ElementGeometryPatch, ElementStylePatch } from "../emitter";
 import { applyAlpha, toFabricPaint } from "./fill";
+import { RichTextBox } from "./rich-object";
 
 export { toFabricPaint } from "./fill";
 
@@ -152,6 +153,10 @@ export function applyGeometryPatch(
 
 	// 尺寸与 left/top 先落，角度最后以「最终几何的中心」为支点
 	assignProps(object, props);
+	// 富文本：宽度变了要重新断行（高度由内容决定）
+	if (object instanceof RichTextBox) {
+		object.relayout();
+	}
 	if (typeof patch.angle === "number") {
 		applyAngleAroundCenter(object, patch.angle);
 	}
@@ -218,6 +223,25 @@ export function applyStylePatch(
 
 	// 字号/字体都在 fabric 的排版属性里，set 会自己触发重排，不用手动 initDimensions
 	assignProps(object, props);
+	// 富文本是自绘的：元素级样式变了要按新参数重排一次
+	if (object instanceof RichTextBox) {
+		object.applyBasicStyle({
+			fontSize: typeof stored.fontSize === "number" ? stored.fontSize : undefined,
+			fontFamily: typeof stored.fontFamily === "string" ? stored.fontFamily : undefined,
+			fontWeight:
+				typeof stored.fontWeight === "string" || typeof stored.fontWeight === "number"
+					? stored.fontWeight
+					: undefined,
+			lineHeight: typeof stored.lineHeight === "number" ? stored.lineHeight : undefined,
+			textAlign:
+				stored.textAlign === "center" || stored.textAlign === "right"
+					? stored.textAlign
+					: stored.textAlign === "left"
+						? "left"
+						: undefined,
+			color: patch.fill?.kind === "solid" ? patch.fill.color : undefined,
+		});
+	}
 	return stored;
 }
 
@@ -255,6 +279,10 @@ export function applyElementAttrs(
 	assignProps(object, rest);
 	refreshFill(object, fill);
 	applyShadow(object, shadow);
+	// 富文本：文档/字号/字体/对齐变了都要重排；fill 在这里只当文字颜色用
+	if (object instanceof RichTextBox) {
+		object.applyAttrs(attrs);
+	}
 }
 
 /**

@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { EmptyCanvasHint } from "@/components/report/empty-canvas-hint";
 import { CanvasOverlay } from "./canvas-overlay";
@@ -14,6 +15,14 @@ import { useSelection } from "./use-selection";
 import { useSnapping } from "./use-snapping";
 import { useSpacePan } from "./use-space-pan";
 import { useTextEditing } from "./use-text-editing";
+
+/**
+ * 富文本编辑器带着 Tiptap/ProseMirror，体积不小；只有真正双击文本时才需要。
+ * 用 lazy 拆出去，首屏不背这部分。
+ */
+const RichTextEditor = lazy(() =>
+	import("./rich-text-editor").then((module) => ({ default: module.RichTextEditor })),
+);
 
 export function DrawArea() {
 	// 画布与白页只在这里创建一次；其它 hook 都等 canvas 就绪后再接管
@@ -63,6 +72,10 @@ export function DrawArea() {
 						<CanvasOverlay />
 						{/* 裁剪层：独立 fabric 画布，盖在画布上接管裁剪交互 */}
 						<CropOverlay />
+						{/* 富文本编辑层：双击文本后在原位置盖一个 Tiptap 编辑器（按需加载） */}
+						<Suspense fallback={null}>
+							<RichTextEditor />
+						</Suspense>
 						{/* 空页提示：只在当前页没有元素时出现 */}
 						<EmptyCanvasHint />
 					</div>

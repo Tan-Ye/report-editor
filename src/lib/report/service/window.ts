@@ -79,11 +79,13 @@ export async function openNewReportWindow(
 				: target
 					? "报表编辑器 — 未保存的内容"
 					: "报表编辑器 — 新报告",
-		width: 1440,
-		height: 900,
+		width: 1920,
+		height: 1080,
 		minWidth: 1024,
 		minHeight: 640,
 		center: true,
+		// 和主窗口一致：启动就是最大化，工具条/富文本菜单才不会挤在一起
+		maximized: true,
 	});
 
 	// 创建失败（标签重复、系统拒绝）要能告诉用户，而不是静默什么都不发生

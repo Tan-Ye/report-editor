@@ -61,7 +61,9 @@ export type ElementCommandPayload =
 	  }
 	| { type: "update-page-background"; paint: FillSpec | undefined; commit?: boolean }
 	/** 插入图片元素：fill 里已经带着导入好的图片路径，width/height 是原始像素尺寸 */
-	| { type: "insert-image"; fill: FillSpec; width: number; height: number };
+	| { type: "insert-image"; fill: FillSpec; width: number; height: number }
+	/** 在页面中央插入富文本元素并直接进入编辑 */
+	| { type: "insert-text" };
 
 type AnyListener = (args: unknown) => void;
 

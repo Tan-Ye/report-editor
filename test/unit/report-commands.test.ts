@@ -255,3 +255,49 @@ describe("批量执行", () => {
 		expect(historyStore.getSnapshot().canUndo).toBe(false);
 	});
 });
+
+describe("富文本属性", () => {
+	it("只给 paragraphs 时自动补纯文本投影", () => {
+		const result = addElement({
+			elementType: "text",
+			attrs: {
+				paragraphs: [
+					{ runs: [{ text: "加粗", marks: { bold: true } }] },
+					{ runs: [{ text: "项一" }], list: { kind: "bullet", level: 0 } },
+				],
+			},
+		});
+		expect(result.ok).toBe(true);
+		const attrs = currentPage().elements[0].attrs;
+		expect(attrs.text).toBe("加粗\n项一");
+		expect(attrs.paragraphs).toHaveLength(2);
+		const paragraphs = attrs.paragraphs as { list?: { kind: string; level: number } }[];
+		expect(paragraphs[1].list).toEqual({ kind: "bullet", level: 0 });
+	});
+
+	it("只改 text 时按新文本重建 paragraphs，不会被旧的盖回去", () => {
+		const created = addElement({ elementType: "text", attrs: { text: "第一版" } });
+		const id = String(created.data?.elementId);
+		expect(updateElement({ elementId: id, attrs: { text: "第二版" } }).ok).toBe(true);
+
+		const attrs = currentPage().elements[0].attrs;
+		expect(attrs.text).toBe("第二版");
+		expect(attrs.paragraphs).toEqual([{ runs: [{ text: "第二版" }] }]);
+	});
+
+	it("给 paragraphs 时反过来补 text", () => {
+		const created = addElement({ elementType: "text", attrs: { text: "旧" } });
+		const id = String(created.data?.elementId);
+		updateElement({
+			elementId: id,
+			attrs: {
+				paragraphs: [
+					{ runs: [{ text: "第一段" }] },
+					{ runs: [{ text: "第二段" }] },
+				],
+			},
+		});
+
+		expect(currentPage().elements[0].attrs.text).toBe("第一段\n第二段");
+	});
+});

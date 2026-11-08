@@ -6,6 +6,7 @@ import {
 	TEXT_ELEMENT_TYPE,
 } from "@/base/elements";
 import { createUniqueId } from "@/lib/utils";
+import { normalizeRichText, plainTextToRichText, richTextToPlainText } from "@/lib/element/rich-text";
 import {
 	historyStore,
 	normalizeFill,
@@ -279,6 +280,20 @@ export function addGuide(options: {
 	return { ok: true, message: `已添加${options.axis === "x" ? "竖" : "横"}向参考线（${position}）` };
 }
 
+/**
+ * 文本元素：text（纯文本投影）和 paragraphs（富文本模型）互为投影。
+ * `source` 决定以谁为准 —— agent 通常只给 text，给 paragraphs 时反过来补齐 text。
+ */
+function syncTextAttributes(attrs: ElementAttrs, source: "text" | "paragraphs"): void {
+	if (source === "paragraphs") {
+		const doc = normalizeRichText(attrs.paragraphs);
+		attrs.paragraphs = doc;
+		attrs.text = richTextToPlainText(doc);
+		return;
+	}
+	attrs.paragraphs = plainTextToRichText(typeof attrs.text === "string" ? attrs.text : "");
+}
+
 /** 各类型的几何默认值：模型只给位置时也能落一个像样的元素 */
 function defaultGeometry(elementType: string): { width: number; height: number } {
 	if (elementType === TEXT_ELEMENT_TYPE) {
@@ -341,8 +356,11 @@ export function addElement(options: {
 		attrs.width = rest.width;
 	}
 
-	if (elementType === TEXT_ELEMENT_TYPE && (typeof attrs.text !== "string" || !attrs.text.trim())) {
-		return fail("text 元素必须给 attrs.text");
+	if (elementType === TEXT_ELEMENT_TYPE) {
+		syncTextAttributes(attrs, Array.isArray(attrs.paragraphs) ? "paragraphs" : "text");
+		if (typeof attrs.text !== "string" || !attrs.text.trim()) {
+			return fail("text 元素必须给 attrs.text 或 attrs.paragraphs");
+		}
 	}
 
 	// 填充统一归一化：模型经常给 "#fff" 或 {kind:'solid',...} 两种写法
@@ -393,7 +411,8 @@ export function updateElement(options: {
 		return fail(`找不到元素 ${options.elementId}`);
 	}
 	const { fill: rawFill, ...rest } = options.attrs ?? {};
-	const attrs: ElementAttrs = { ...found.page.elements[found.elementIndex].attrs };
+	const current = found.page.elements[found.elementIndex];
+	const attrs: ElementAttrs = { ...current.attrs };
 
 	for (const [key, value] of Object.entries(rest)) {
 		attrs[key] = value;
@@ -404,6 +423,14 @@ export function updateElement(options: {
 			return fail("attrs.fill 不合法");
 		}
 		attrs.fill = fill;
+	}
+	if (current.elementType === TEXT_ELEMENT_TYPE) {
+		// 以这次补丁里真正传了的那一方为准：只改 text 时不能被旧的 paragraphs 盖回去
+		if (Array.isArray(rest.paragraphs)) {
+			syncTextAttributes(attrs, "paragraphs");
+		} else if (typeof rest.text === "string") {
+			syncTextAttributes(attrs, "text");
+		}
 	}
 
 	const elements = [...found.page.elements];

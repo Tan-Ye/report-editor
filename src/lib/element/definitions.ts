@@ -5,11 +5,7 @@ import {
 	IMAGE_PLACEHOLDER_FILL,
 	SHAPE_OPTIONS,
 	SHAPE_PATHS,
-	TEXT_BOX_WIDTH,
 	TEXT_ELEMENT_TYPE,
-	TEXT_FONT_FAMILY,
-	TEXT_FONT_SIZE,
-	TEXT_LINE_HEIGHT,
 	UNIT_SIZE,
 	lineStyleToElementType,
 	LINE_STYLE_OPTIONS,
@@ -17,6 +13,7 @@ import {
 	type ShapeType,
 } from "@/base/elements";
 import { getReportPalette } from "@/lib/theme-tokens";
+import { createRichTextBox } from "./rich-object";
 import type { ElementAttrs, ElementType } from "@/store";
 
 /**
@@ -134,6 +131,8 @@ const TEXT_PROPS = [
 	"lineHeight",
 	// 文本内容：不存这一项等于什么都没保存
 	"text",
+	// 富文本段落模型（纯文本 text 是它的投影，两个都存便于 agent / 旧版本读取）
+	"paragraphs",
 ] as const;
 
 /** 图片元素：几何 + 填充（图片本身就在 fill 里）+ 描边（可以当边框用） */
@@ -150,25 +149,12 @@ const IMAGE_PROPS = [
 ] as const;
 
 /**
- * 文本元素用 Textbox：宽度固定、自动换行，高度随内容增长。
- * 空文本时高度正好是「一行」，也就是点击后看到的那条矩形。
+ * 文本元素：富文本自绘对象（见 `rich-object.ts`）。
+ *
+ * 宽度固定、高度随内容增长；空文本时高度是一行，配虚线框保证点得到。
  */
-function buildText(box: DragBox): fabric.FabricObject {
-	const palette = getReportPalette();
-	return new fabric.Textbox("", {
-		left: box.left,
-		top: box.top,
-		originX: "left",
-		originY: "top",
-		width: TEXT_BOX_WIDTH,
-		fontSize: TEXT_FONT_SIZE,
-		lineHeight: TEXT_LINE_HEIGHT,
-		fontFamily: TEXT_FONT_FAMILY,
-		fill: palette.textFill,
-		// 按字符断行：中文没有空格，按词断行会整段挤成一行放不下
-		splitByGrapheme: true,
-		objectCaching: false,
-	});
+function buildText(box: DragBox, attrs?: ElementAttrs): fabric.FabricObject {
+	return createRichTextBox({ left: box.left, top: box.top, width: box.width }, attrs);
 }
 
 function buildRect(box: DragBox): fabric.FabricObject {

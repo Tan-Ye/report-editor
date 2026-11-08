@@ -234,8 +234,8 @@ export function useElementActions(
 		}
 
 		const handleKeyDown = (event: KeyboardEvent) => {
-			// 裁剪态有自己的键处理（Esc/Enter），其它快捷键让路
-			if (toolStore.getCroppingId()) {
+			// 裁剪/富文本编辑态有自己的键处理，其它快捷键让路
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				return;
 			}
 			// 示例演示期间画布被锁、历史被抑制，快捷键不要掺进去

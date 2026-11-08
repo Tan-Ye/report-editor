@@ -41,8 +41,8 @@ export function useContextMenu(canvas: fabric.Canvas | null, actions: ElementAct
 		 * 数据必须用 flushSync 同步提交 —— 菜单是在同一个事件里立刻打开的。
 		 */
 		function handleContextMenu(opt: { target?: fabric.FabricObject; e?: Event }) {
-			// 裁剪态不弹元素菜单
-			if (toolStore.getCroppingId()) {
+			// 裁剪/编辑态不弹元素菜单
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				flushSync(() => setContextMenu(null));
 				return;
 			}

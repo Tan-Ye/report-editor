@@ -151,8 +151,8 @@ export function useCanvas(): CanvasHandle {
 			if (!(event.ctrlKey || event.metaKey)) {
 				return;
 			}
-			// 裁剪层的坐标是按进入时的视口算的，缩放会让它和元素错位
-			if (toolStore.getCroppingId()) {
+			// 裁剪/编辑层的坐标是按进入时的视口算的，缩放会让它和元素错位
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				return;
 			}
 			event.preventDefault();

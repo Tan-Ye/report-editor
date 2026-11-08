@@ -16,6 +16,11 @@ export interface ToolState {
 	 * 属于纯 UI 状态（像工具一样），所以放这里而不是元素/页面数据里。
 	 */
 	croppingId: string | null;
+	/**
+	 * 正在用富文本编辑器编辑的元素 id；null = 没在编辑。
+	 * 编辑期间画布上的文本对象会隐藏，由 DOM 覆盖层接管。
+	 */
+	editingTextId: string | null;
 }
 
 /**
@@ -30,6 +35,7 @@ class ToolStore {
 		shapeType: "ellipse",
 		drawing: false,
 		croppingId: null,
+		editingTextId: null,
 	};
 	private listeners = new Set<() => void>();
 
@@ -71,6 +77,27 @@ class ToolStore {
 			return;
 		}
 		this.state = { ...this.state, croppingId: null };
+		this.emit();
+	}
+
+	/** 正在编辑的文本元素 id；没在编辑返回 null */
+	getEditingTextId = () => this.state.editingTextId;
+
+	/** 进入富文本编辑：画布上的文本对象隐藏，DOM 覆盖层接管 */
+	startTextEditing(id: string) {
+		if (this.state.editingTextId === id) {
+			return;
+		}
+		this.state = { ...this.state, editingTextId: id };
+		this.emit();
+	}
+
+	/** 退出富文本编辑 */
+	stopTextEditing() {
+		if (this.state.editingTextId === null) {
+			return;
+		}
+		this.state = { ...this.state, editingTextId: null };
 		this.emit();
 	}
 

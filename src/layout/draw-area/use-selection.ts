@@ -14,6 +14,8 @@ import {
 	refreshFill,
 	toFabricPaint,
 } from "@/lib/element/registry";
+import { RichTextBox } from "@/lib/element/rich-object";
+import { centerPointForText, createTextElement } from "./text-element";
 import {
 	ELEMENT_COMMAND,
 	emitter,
@@ -99,6 +101,11 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		/** 用户拖动/缩放/旋转结束：同步状态 + 回写页面数据 + 记一步历史 */
 		function handleObjectsModified() {
+			// 文本不跟着缩放：把 scale 折成宽度，按新宽度重排一次
+			const active = canvas.getActiveObject();
+			if (active instanceof RichTextBox) {
+				active.normalizeScale();
+			}
 			syncSelection(true);
 			historyStore.commit();
 		}
@@ -169,12 +176,6 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 			}
 
 			applyGeometryPatch(object, definition, patch);
-
-			// Textbox 的排版不把 width 当排版属性，改了宽度不会自己重新折行，得手动触发一次
-			if (object instanceof fabric.Textbox && patch.width !== undefined) {
-				object.initDimensions();
-				object.setCoords();
-			}
 
 			// 尺寸变了，渐变坐标/图片适应方式都得按新尺寸重算
 			if (patch.width !== undefined || patch.height !== undefined) {
@@ -272,8 +273,8 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		function handlePageMouseDown(opt: { target?: unknown; e: Event }) {
 			pageClickStart = null;
-			// 裁剪态由覆盖层接管鼠标，不在这里选背景
-			if (toolStore.getCroppingId()) {
+			// 裁剪/编辑覆盖层接管鼠标，不在这里选背景
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				return;
 			}
 			// 画笔模式下拖笔不该顺带选中背景
@@ -352,12 +353,17 @@ export function useSelection(canvas: fabric.Canvas | null, page: fabric.Rect | n
 
 		// 顶栏与属性面板发来的元素命令（对齐、改几何、改外观、改背景）
 		const unsubscribeCommand = emitter.on<ElementCommandPayload>(ELEMENT_COMMAND, (payload) => {
-			// 裁剪态里面板命令不该插进来：几何和填充会在确认时统一写
-			if (toolStore.getCroppingId()) {
+			// 裁剪/编辑态里面板命令不该插进来：几何和填充会在确认时统一写
+			if (toolStore.getCroppingId() || toolStore.getEditingTextId()) {
 				return;
 			}
 			if (payload?.type === "align") {
 				alignSelectedElements(payload.direction);
+				return;
+			}
+			// 顶栏「插入富文本」：落页面中央，落完直接进编辑
+			if (payload?.type === "insert-text") {
+				createTextElement(canvas, centerPointForText(), { openEditor: true });
 				return;
 			}
 			if (payload?.type === "update-geometry") {
