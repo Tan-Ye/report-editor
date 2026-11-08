@@ -79,13 +79,14 @@ export async function openNewReportWindow(
 				: target
 					? "报表编辑器 — 未保存的内容"
 					: "报表编辑器 — 新报告",
-		width: 1920,
-		height: 1080,
+		width: 1280,
+		height: 800,
 		minWidth: 1024,
 		minHeight: 640,
 		center: true,
 		// 和主窗口一致：启动就是最大化，工具条/富文本菜单才不会挤在一起
 		maximized: true,
+		backgroundColor: "#f1f1f1",
 	});
 
 	// 创建失败（标签重复、系统拒绝）要能告诉用户，而不是静默什么都不发生
