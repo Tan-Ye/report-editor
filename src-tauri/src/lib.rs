@@ -35,6 +35,7 @@ pub fn run() {
             storage::storage_write_text,
             storage::storage_list_dirs,
             storage::storage_list_files,
+            storage::storage_report_summaries,
             storage::storage_rename,
             storage::storage_remove_dir,
             storage::storage_remove_file,

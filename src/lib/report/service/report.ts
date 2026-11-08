@@ -4,11 +4,13 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "@/components/ui/toast";
 import { applyReportFile, createReportInfo, dataDirsStore, historyStore, pageStore, reportStore, saveStateStore, toReportFile } from "@/store";
-import { ensurePreferencesLoaded } from "../../ui-preferences";
+import { ensurePreferencesLoaded, getLastReport, rememberLastReport } from "../../ui-preferences";
+import { startSpan } from "../../startup-timing";
 import { getReportFolderName, type ReportArea } from "../path";
 import { claimReport, releaseHeldReport } from "./session";
+import { openDraft } from "./draft";
 import { summarizeIssues, validateReportJson } from "../validate";
-import { copyMediaDir, ensureArea, ensureReportFolder, getAbsolutePath, getFolderJsonPath, getReportUpdatedAt, hasReportFile, listReportFolders, readReportJson, removeReportDir, removeUnreferencedMedia, renamePath, renameReportDir, writeJsonAtomically } from "./storage";
+import { copyMediaDir, ensureArea, ensureReportFolder, getAbsolutePath, getFolderJsonPath, getReportUpdatedAt, hasReportFile, listReportMeta, readReportJson, removeReportDir, removeUnreferencedMedia, renamePath, renameReportDir, writeJsonAtomically } from "./storage";
 import { SAVED_AREA, DRAFT_AREA, getStorageRoot, getCurrentReportRoot, collectMediaReferences, findReportFolder, toErrorMessage } from "./context";
 
 export interface ReportSummary {
@@ -23,11 +25,13 @@ export interface ReportSummary {
 /** 已保存报告放 data，未保存的草稿放 cache，模板放 templates */
 
 export async function listReportsInAllDirs(): Promise<ReportSummary[]> {
+	const span = startSpan("list-saved-all");
 	await ensurePreferencesLoaded();
 	const dirs = dataDirsStore.getState().dirs;
 	const lists = await Promise.all(
 		dirs.map((dir) => listSavedReports(dir.path).catch(() => [] as ReportSummary[])),
 	);
+	span.end(`${dirs.length} 个数据目录`);
 	return lists.flat().sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
@@ -85,6 +89,7 @@ export async function saveReport(): Promise<void> {
 		await removeDraftFolder(root, reportId);
 		// 记下这份报告落在哪个目录：新建的报告第一次保存后才算有了归属
 		reportStore.setRootPath(root);
+		rememberLastReport({ root, area: "data", folder: finalFolder, reportId });
 		saveStateStore.endSave(revision);
 		toast.add({ title: "保存成功", type: "success" });
 	} catch (error) {
@@ -136,29 +141,17 @@ async function removeDraftFolder(root: string, reportId: string): Promise<void> 
 export async function listSavedReports(root?: string): Promise<ReportSummary[]> {
 	const actualRoot = root ?? (await getStorageRoot());
 	await ensureArea(actualRoot, SAVED_AREA);
-	const folders = await listReportFolders(actualRoot, SAVED_AREA);
-	const reports: ReportSummary[] = [];
-
-	for (const folder of folders) {
-		try {
-			const raw = await readReportJson(actualRoot, SAVED_AREA, folder);
-			const parsed = JSON.parse(raw) as { reportId?: unknown; reportName?: unknown };
-			if (typeof parsed.reportId !== "string" || !parsed.reportId) {
-				continue;
-			}
-			reports.push({
-				reportId: parsed.reportId,
-				reportName: typeof parsed.reportName === "string" ? parsed.reportName : "",
-				folder,
-				root: actualRoot,
-				updatedAt: await getReportUpdatedAt(actualRoot, SAVED_AREA, folder),
-			});
-		} catch {
-			// 单个目录坏了就跳过，不让整个列表打不开
-		}
-	}
-
-	return reports.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+	// 一次 Rust 调用拿回所有摘要，不再逐个目录读 JSON + mtime
+	const metas = await listReportMeta(actualRoot, SAVED_AREA);
+	return metas
+		.map((meta) => ({
+			reportId: meta.reportId,
+			reportName: meta.reportName,
+			folder: meta.folder,
+			root: actualRoot,
+			updatedAt: meta.updatedAt || null,
+		}))
+		.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
 /** 打开一份已保存的报告 */
@@ -168,8 +161,11 @@ export async function openReport(
 	options: { silent?: boolean; root?: string } = {},
 ): Promise<void> {
 	const root = options.root ?? (await getStorageRoot());
+	const openSpan = startSpan("open-report");
 	try {
+		const readSpan = startSpan("read-report-json");
 		const raw = await readReportJson(root, SAVED_AREA, folder);
+		readSpan.end(`${Math.round(raw.length / 1024)}KB`);
 		// 用校验入口而不是直接 parse：这样"未注册类型""版本过新"这类问题也能提示出来
 		const validation = validateReportJson(raw);
 		if (!validation.file) {
@@ -177,7 +173,9 @@ export async function openReport(
 		}
 		const file = validation.file;
 		// 抢占用：同一份报告不能同时开在两个窗口里（否则保存和会话会互相覆盖）
+		const claimSpan = startSpan("claim-report");
 		const claim = await claimReport(file.reportId);
+		claimSpan.end(claim.claimed ? "ok" : "被占用");
 		if (!claim.claimed) {
 			// 窗口标签是 report-1730… 这种内部名字，给用户看没有意义
 			throw new Error("这份报告已在另一个窗口打开，请先关掉那个窗口");
@@ -188,10 +186,16 @@ export async function openReport(
 		// 顺序反了第一遍会去默认目录 / cache 里找图，图就白了
 		reportStore.setRootPath(root);
 		saveStateStore.reset(true);
+		const applySpan = startSpan("apply-report-file");
 		applyReportFile(file);
+		applySpan.end(`${file.pages.length} 页`);
+		// 记住"上次打开的是这份"：启动恢复直接按它开，不用扫目录
+		rememberLastReport({ root, area: "data", folder, reportId: file.reportId });
 
 		// 有比正式文件更新的草稿 = 上次是异常退出（或崩溃），把改动接回来
+		const draftSpan = startSpan("read-newer-draft");
 		const draft = await readNewerDraft(root, file.reportId);
+		draftSpan.end(draft ? "有更新的草稿" : "无");
 		const restored = draft ? validateReportJson(draft) : null;
 		if (restored?.file) {
 			applyReportFile(restored.file);
@@ -230,7 +234,9 @@ export async function openReport(
 				type: "warning",
 			});
 		}
+		openSpan.end(`${folder} · 成功`);
 	} catch (error) {
+		openSpan.end(`${folder} · 失败`);
 		toast.add({ title: "打开失败", description: toErrorMessage(error), type: "error" });
 	}
 }
@@ -291,25 +297,56 @@ export function createNewReport(options: { silent?: boolean } = {}): void {
 	pageStore.replacePages([], 0);
 	historyStore.reset();
 	saveStateStore.reset(false);
+	// 新报告还没落盘：指针先清掉，等自动存草稿时再指向 cache
+	rememberLastReport(null);
 	if (!options.silent) {
 		toast.add({ title: "已新建报告", type: "info" });
 	}
 }
 
 /**
- * 启动时恢复：打开所有数据目录里最近修改的一份报告。
- * 只有一份都没有的时候才新建 —— 也就是"数据目录里没有报告文件"这一种情况。
+ * 启动恢复：优先按「上次打开的报告」指针直接开。
+ *
+ * 只有指针不存在（首次启动/老版本升级）才回退去扫所有数据目录 ——
+ * 正常启动就一次偏好读取 + 一次读文件，不再为每份报告各读一遍 JSON。
  */
 export async function restoreLastReport(): Promise<void> {
+	const span = startSpan("restore-last-report");
 	try {
-		// 扫所有数据目录，不只是默认目录
+		await ensurePreferencesLoaded();
+		const last = getLastReport();
+		if (last) {
+			const area = last.area === "cache" ? DRAFT_AREA : SAVED_AREA;
+			const exists = await hasReportFile(last.root, area, last.folder).catch(() => false);
+			if (exists) {
+				if (last.area === "cache") {
+					if (await openDraft(last.root, last.folder, { silent: true })) {
+						span.end("指针 · 草稿");
+						return;
+					}
+				} else {
+					await openReport(last.folder, { silent: true, root: last.root });
+					if (reportStore.state.reportId === last.reportId) {
+						span.end("指针 · 正式报告");
+						return;
+					}
+				}
+			}
+			// 文件被删/挪走：指针作废，下面回退扫描
+			rememberLastReport(null);
+		}
+
+		// 没有指针才扫（首次启动、升级后的第一次）
 		const reports = await listReportsInAllDirs();
 		const latest = reports[0];
 		if (latest) {
 			await openReport(latest.folder, { silent: true, root: latest.root });
+			span.end(`回退扫描 · ${reports.length} 份`);
 			return;
 		}
+		span.end("无报告 · 新建");
 	} catch (error) {
+		span.end("失败");
 		toast.add({ title: "读取历史报告失败", description: toErrorMessage(error), type: "error" });
 	}
 	// 首次启动或目录为空

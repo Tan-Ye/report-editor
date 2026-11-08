@@ -82,6 +82,72 @@ pub fn storage_list_files(root: String, relative: String) -> Result<Vec<String>,
     Ok(names)
 }
 
+/// 报告目录摘要：列表只需要这几项，不用把整份 JSON 传给前端
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportSummary {
+    pub folder: String,
+    pub report_id: String,
+    pub report_name: String,
+    pub updated_at: u64,
+}
+
+/// 扫一个存储区下的报告目录，只解析出列表要用的字段。
+///
+/// 以前前端对每个目录依次 `storage_read_text` + `storage_mtime`，
+/// 几十份报告就是几十次 IPC；这里一次调用返回全部摘要。
+#[tauri::command]
+pub fn storage_report_summaries(root: String, area: String) -> Result<Vec<ReportSummary>, String> {
+    if !matches!(area.as_str(), "data" | "cache" | "templates") {
+        return Err(format!("未知的存储区：{area}"));
+    }
+    let dir = resolve(&root, &area)?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut summaries = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| format!("列目录失败：{e}"))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let folder = entry.file_name().to_string_lossy().to_string();
+        let json_path = entry.path().join("report.json");
+        let Ok(raw) = std::fs::read_to_string(&json_path) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let report_id = parsed
+            .get("reportId")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if report_id.is_empty() {
+            continue;
+        }
+        let report_name = parsed
+            .get("reportName")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let updated_at = std::fs::metadata(&json_path)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        summaries.push(ReportSummary {
+            folder,
+            report_id: report_id.to_string(),
+            report_name: report_name.to_string(),
+            updated_at,
+        });
+    }
+
+    Ok(summaries)
+}
+
 /// 目录改名（报告改名时同步目录名）
 #[tauri::command]
 pub fn storage_rename(root: String, from: String, to: String) -> Result<(), String> {

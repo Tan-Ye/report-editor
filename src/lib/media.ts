@@ -4,6 +4,7 @@ import { toast } from "@/components/ui/toast";
 import { runWhenIdle } from "@/lib/utils";
 import type { FillSpec, PageInfo } from "@/store";
 import { getCurrentReportDir, getCurrentReportRelativeDir, getCurrentReportRoot } from "./report/service";
+import { recordIpc, startSpan } from "./startup-timing";
 
 /** 支持导入的图片类型（和 Rust 侧的白名单保持一致） */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
@@ -116,18 +117,21 @@ function notifyImageReady(): void {
 }
 
 async function loadMediaImage(source: string): Promise<HTMLImageElement> {
+	const span = startSpan("media-image");
 	// 图片可能是自定义目录里的文件，fs 插件读不到 —— 统一走 Rust 转成 data URL
 	const base = mediaBase ?? {
 		root: await getCurrentReportRoot(),
 		relative: await getCurrentReportRelativeDir(),
 	};
+	const ipcStart = performance.now();
 	const dataUrl = await invoke<string>("read_media_data_url", {
 		root: base.root,
 		relative: `${base.relative}/${source}`,
-	});
+	}).finally(() => recordIpc("read_media_data_url", performance.now() - ipcStart));
 	const image = new Image();
 	image.src = dataUrl;
 	await image.decode();
+	span.end(`${source.replace(/^media\//, "")} · ${Math.round(dataUrl.length / 1024)}KB`);
 	return image;
 }
 
@@ -260,6 +264,7 @@ export function getMediaImage(source: string): HTMLImageElement | undefined {
  * 不先等一下，从没被打开过的页面在侧栏里就会缺图。
  */
 export async function ensureMediaImages(sources: string[]): Promise<void> {
+	const span = startSpan("media-ensure");
 	const tasks: Promise<void>[] = [];
 	for (const source of sources) {
 		if (imageCache.has(source)) {
@@ -273,4 +278,5 @@ export async function ensureMediaImages(sources: string[]): Promise<void> {
 		}
 	}
 	await Promise.all(tasks);
+	span.end(`${sources.length} 张，新请求 ${tasks.length} 张`);
 }

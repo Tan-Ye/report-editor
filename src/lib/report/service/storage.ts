@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
+import { recordIpc } from "../../startup-timing";
 import {
 	REPORT_FILE_NAME,
 	REPORT_MEDIA_DIR,
@@ -33,7 +34,12 @@ export async function getAbsolutePath(root: string, relativePath: string): Promi
 	return join(root, relativePath);
 }
 
-const call = <T>(command: string, args: Record<string, unknown>) => invoke<T>(command, args);
+const call = <T>(command: string, args: Record<string, unknown>) => {
+	const started = performance.now();
+	return invoke<T>(command, args).finally(() => {
+		recordIpc(command, performance.now() - started);
+	});
+};
 
 /** 确保某个存储区（data / cache）存在 */
 export async function ensureArea(root: string, area: ReportArea): Promise<void> {
@@ -104,6 +110,27 @@ export async function hasReportFile(
 /** 列出某个存储区下的报告目录名 */
 export async function listReportFolders(root: string, area: ReportArea): Promise<string[]> {
 	return call<string[]>("storage_list_dirs", { root, relative: area });
+}
+
+export interface ReportMetaEntry {
+	folder: string;
+	reportId: string;
+	reportName: string;
+	/** report.json 的最后修改时间（毫秒），拿不到就是 0 */
+	updatedAt: number;
+}
+
+/**
+ * 扫一个存储区，一次拿回所有报告目录的摘要。
+ *
+ * 以前列表是「列目录 → 每个目录读全文 JSON → 再单独取 mtime」，
+ * 几十份报告就是一串串行 IPC；现在由 Rust 一次读完、只返回列表要的字段。
+ */
+export async function listReportMeta(
+	root: string,
+	area: ReportArea,
+): Promise<ReportMetaEntry[]> {
+	return call<ReportMetaEntry[]>("storage_report_summaries", { root, area });
 }
 
 /** 读某个报告目录里的 report.json */

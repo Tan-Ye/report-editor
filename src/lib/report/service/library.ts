@@ -1,11 +1,6 @@
 import { dataDirsStore } from "@/store";
 import { ensurePreferencesLoaded } from "../../ui-preferences";
-import {
-	getReportUpdatedAt,
-	listReportFolders,
-	readReportJson,
-	removeReportDir,
-} from "./storage";
+import { listReportMeta, removeReportDir } from "./storage";
 
 /**
  * 报告库里的两类"额外内容"：草稿和模板。
@@ -49,52 +44,29 @@ export interface TemplateEntry {
 	updatedAt: number;
 }
 
-/** 收集 data/ 下所有正式报告的 id：草稿配对用 */
+/** 收集 data/ 下所有正式报告的 id：草稿配对用（一次扫描拿回，不再逐个读 JSON） */
 async function collectSavedIds(root: string): Promise<Set<string>> {
-	const ids = new Set<string>();
-	const folders = await listReportFolders(root, SAVED_AREA).catch(() => [] as string[]);
-	for (const folder of folders) {
-		try {
-			const raw = await readReportJson(root, SAVED_AREA, folder);
-			const parsed = JSON.parse(raw) as { reportId?: unknown };
-			if (typeof parsed.reportId === "string" && parsed.reportId) {
-				ids.add(parsed.reportId);
-			}
-		} catch {
-			continue;
-		}
-	}
-	return ids;
+	const metas = await listReportMeta(root, SAVED_AREA).catch(() => []);
+	return new Set(metas.map((meta) => meta.reportId));
 }
 
 /** 列出一个数据目录下的所有草稿，按最后修改时间倒序 */
 export async function listDrafts(root: string): Promise<DraftEntry[]> {
-	const folders = await listReportFolders(root, DRAFT_AREA).catch(() => [] as string[]);
-	const savedIds = await collectSavedIds(root);
-	const entries: DraftEntry[] = [];
+	const [metas, savedIds] = await Promise.all([
+		listReportMeta(root, DRAFT_AREA).catch(() => []),
+		collectSavedIds(root),
+	]);
 
-	for (const folder of folders) {
-		try {
-			const raw = await readReportJson(root, DRAFT_AREA, folder);
-			const parsed = JSON.parse(raw) as { reportId?: unknown; reportName?: unknown };
-			const reportId = typeof parsed.reportId === "string" ? parsed.reportId : "";
-			if (!reportId) {
-				// 没有 id 的草稿无法配对，也无法被占用检查保护，直接跳过
-				continue;
-			}
-			entries.push({
-				root,
-				folder,
-				reportId,
-				reportName: typeof parsed.reportName === "string" ? parsed.reportName : "未命名报告",
-				updatedAt: (await getReportUpdatedAt(root, DRAFT_AREA, folder)) ?? 0,
-				hasSavedCopy: savedIds.has(reportId),
-			});
-		} catch {
-			// 单份草稿坏了不该影响整份列表
-			continue;
-		}
-	}
+	const entries: DraftEntry[] = metas
+		.filter((meta) => meta.reportId)
+		.map((meta) => ({
+			root,
+			folder: meta.folder,
+			reportId: meta.reportId,
+			reportName: meta.reportName || "未命名报告",
+			updatedAt: meta.updatedAt,
+			hasSavedCopy: savedIds.has(meta.reportId),
+		}));
 
 	return entries.sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -114,29 +86,13 @@ export async function discardDraft(root: string, folder: string): Promise<void> 
 
 /** 列出一个数据目录下的所有模板，按最后修改时间倒序 */
 export async function listTemplates(root: string): Promise<TemplateEntry[]> {
-	const folders = await listReportFolders(root, TEMPLATE_AREA).catch(() => [] as string[]);
-	const entries: TemplateEntry[] = [];
-
-	for (const folder of folders) {
-		try {
-			const raw = await readReportJson(root, TEMPLATE_AREA, folder);
-			const parsed = JSON.parse(raw) as { reportName?: unknown };
-			const name =
-				typeof parsed.reportName === "string" && parsed.reportName.trim()
-					? parsed.reportName
-					: "未命名模板";
-			entries.push({
-				root,
-				folder,
-				name,
-				updatedAt: (await getReportUpdatedAt(root, TEMPLATE_AREA, folder)) ?? 0,
-			});
-		} catch {
-			// 单个模板坏了不该影响整张列表
-			continue;
-		}
-	}
-
+	const metas = await listReportMeta(root, TEMPLATE_AREA).catch(() => []);
+	const entries: TemplateEntry[] = metas.map((meta) => ({
+		root,
+		folder: meta.folder,
+		name: meta.reportName || "未命名模板",
+		updatedAt: meta.updatedAt,
+	}));
 	return entries.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

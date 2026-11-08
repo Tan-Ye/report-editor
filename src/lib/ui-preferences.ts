@@ -2,6 +2,7 @@ import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from "@taur
 import { MAX_RECENT_COLORS } from "@/base/colors";
 import { agentStore, dataDirsStore, preferenceStore, type AgentProvider } from "@/store";
 import { getAppDataRoot } from "./report/service/storage";
+import { startSpan } from "./startup-timing";
 
 /**
  * UI 偏好的落盘位置：和报告草稿目录（cache/<报告目录>/）同级的单个文件。
@@ -23,6 +24,8 @@ let loading: Promise<void> | null = null;
 interface PreferenceFile {
 	recentColors?: unknown;
 	dataDirs?: { dirs?: unknown; defaultPath?: unknown };
+	/** 上次打开的报告：启动恢复只认它，不用扫所有数据目录 */
+	lastReport?: unknown;
 	agent?: {
 		provider?: unknown;
 		baseUrl?: unknown;
@@ -35,6 +38,64 @@ interface PreferenceFile {
 	};
 }
 
+/** 上次打开的报告指针：目录 + 区域 + 目录名 + id，启动时直接按它打开 */
+export interface LastReportPointer {
+	root: string;
+	area: "data" | "cache";
+	folder: string;
+	reportId: string;
+}
+
+let lastReport: LastReportPointer | null = null;
+let preferencesLoaded = false;
+
+function parseLastReport(raw: unknown): LastReportPointer | null {
+	if (typeof raw !== "object" || raw === null) {
+		return null;
+	}
+	const value = raw as Record<string, unknown>;
+	if (
+		typeof value.root !== "string" ||
+		(value.area !== "data" && value.area !== "cache") ||
+		typeof value.folder !== "string" ||
+		typeof value.reportId !== "string"
+	) {
+		return null;
+	}
+	return { root: value.root, area: value.area, folder: value.folder, reportId: value.reportId };
+}
+
+/** 当前记住的报告指针；还没加载完偏好时是 null */
+export function getLastReport(): LastReportPointer | null {
+	return lastReport;
+}
+
+function sameLastReport(left: LastReportPointer | null, right: LastReportPointer | null): boolean {
+	if (!left || !right) {
+		return left === right;
+	}
+	return (
+		left.root === right.root &&
+		left.area === right.area &&
+		left.folder === right.folder &&
+		left.reportId === right.reportId
+	);
+}
+
+/**
+ * 记住"上次打开的报告"。
+ *
+ * 启动恢复只读它，不再扫所有数据目录；指针没了（首次启动/升级）才回退去扫描。
+ * 每次打开/保存/自动存草稿都可能调它，内容没变就不写盘。
+ */
+export function rememberLastReport(pointer: LastReportPointer | null): void {
+	if (sameLastReport(lastReport, pointer)) {
+		return;
+	}
+	lastReport = pointer;
+	void savePreferencesNow();
+}
+
 async function readPreferencesFile(): Promise<PreferenceFile> {
 	if (!(await exists(PREFERENCES_PATH, { baseDir: BASE_DIR }))) {
 		return {};
@@ -43,6 +104,7 @@ async function readPreferencesFile(): Promise<PreferenceFile> {
 }
 
 async function load(): Promise<void> {
+	const span = startSpan("prefs-load");
 	try {
 		const raw = await readPreferencesFile();
 		const colors = Array.isArray(raw.recentColors)
@@ -57,6 +119,8 @@ async function load(): Promise<void> {
 			typeof raw.dataDirs?.defaultPath === "string" ? raw.dataDirs.defaultPath : "";
 		// 内置目录的路径是环境决定的，不落盘
 		dataDirsStore.init(await getAppDataRoot(), { dirs: savedDirs, defaultPath });
+
+		lastReport = parseLastReport(raw.lastReport);
 
 		// agent 设置：模型 / 地址 / Key 都算本地偏好，不进报告
 		const agent = raw.agent;
@@ -88,6 +152,9 @@ async function load(): Promise<void> {
 		console.error("读取 UI 偏好失败", error);
 		const builtin = await getAppDataRoot().catch(() => "");
 		dataDirsStore.init(builtin, {});
+	} finally {
+		preferencesLoaded = true;
+		span.end(lastReport ? `lastReport=${lastReport.folder}` : "无 lastReport");
 	}
 }
 
@@ -104,6 +171,8 @@ export async function savePreferencesNow(): Promise<void> {
 		const payload = {
 			recentColors: preferenceStore.getState().recentColors,
 			dataDirs: dataDirsStore.toJSON(),
+			// 上次打开的报告：启动恢复只认它
+			...(preferencesLoaded ? { lastReport } : {}),
 			// agent 设置也存这里：模型、地址、API Key（明文，个人使用场景）
 			agent: agentStore.getState(),
 		};

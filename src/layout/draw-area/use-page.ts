@@ -4,6 +4,7 @@ import { baseHeight, baseWidth } from "@/base";
 import { toast } from "@/components/ui/toast";
 import { assignProps, createElementFromInfo, toFabricPaint } from "@/lib/element/registry";
 import { getReportPalette } from "@/lib/theme-tokens";
+import { startSpan } from "@/lib/startup-timing";
 import { elementObjectMap, historyStore, pageStore, type PageInfo } from "@/store";
 
 /**
@@ -35,6 +36,7 @@ export function usePage(
 
 		/** 清空画布上的元素（白页保留），再按目标页面的数据重建 */
 		function loadPage(pageInfo: PageInfo) {
+			const span = startSpan("canvas-load-page");
 			for (const object of [...canvas.getObjects()]) {
 				if (object === page) {
 					continue;
@@ -61,6 +63,7 @@ export function usePage(
 				canvas.add(object);
 			}
 			canvas.requestRenderAll();
+			span.end(`${pageInfo.elements.length} 个元素`);
 
 			if (missingTypes.size > 0) {
 				toast.add({

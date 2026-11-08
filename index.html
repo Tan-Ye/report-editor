@@ -5,6 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>报表编辑器</title>
+    <script>
+      // 页面一开解析就打点：用来区分「WebView 建窗口 + 加载 HTML」和「加载 JS」谁慢
+      window.__startupHtml = performance.now();
+    </script>
     <!--
       启动占位：React 挂载前先把底色和 loading 画出来，
       避免窗口先白屏、再突然出现界面。样式必须内联，不能等 Tailwind 打包产物。
@@ -61,6 +65,10 @@
         <div class="boot-spinner"></div>
       </div>
     </div>
+    <script type="module">
+      // 内联 module：在主 bundle 之前执行，差值 ≈ 主包加载 + 解析 + 执行
+      window.__startupModuleBoot = performance.now();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

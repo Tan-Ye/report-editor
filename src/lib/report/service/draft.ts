@@ -10,6 +10,7 @@ import { claimReport, releaseHeldReport } from "./session";
 import { summarizeIssues, validateReportJson } from "../validate";
 import { ensureArea, ensureReportFolder, getFolderJsonPath, readReportJson, writeJsonAtomically } from "./storage";
 import { SAVED_AREA, DRAFT_AREA, getStorageRoot, getCurrentReportRoot, captureDocumentJson, findReportFolder, toErrorMessage } from "./context";
+import { getLastReport, rememberLastReport } from "../../ui-preferences";
 
 /**
  * 草稿自动保存。
@@ -39,6 +40,12 @@ export async function saveDraft(): Promise<void> {
 			getReportFolderName(reportName, reportId);
 		await ensureReportFolder(root, DRAFT_AREA, folder);
 		await writeJsonAtomically(root, getFolderJsonPath(DRAFT_AREA, folder), json);
+		// 记住这份草稿：下次启动直接按指针打开，不用扫目录。
+		// 已保存报告（指针指向 data）不覆盖 —— 打开正式文件时会自动接上更新的草稿
+		const pointer = getLastReport();
+		if (!pointer || pointer.area === "cache" || pointer.reportId !== reportId) {
+			rememberLastReport({ root, area: "cache", folder, reportId });
+		}
 	} catch {
 		// 草稿写失败不打扰用户，下次改动会再试
 	}
@@ -80,6 +87,8 @@ export async function openDraft(
 		reportStore.setRootPath(actualRoot);
 		saveStateStore.reset(Boolean(savedFolder));
 		applyReportFile(file);
+		// 记住这份草稿：下次启动按指针直接开
+		rememberLastReport({ root: actualRoot, area: "cache", folder, reportId: file.reportId });
 		historyStore.reset();
 		// 内容还没写进正式文件：标脏，关窗口才会问、Ctrl+S 才会写回
 		saveStateStore.markDirty();

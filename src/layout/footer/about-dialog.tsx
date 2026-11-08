@@ -12,6 +12,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 import { saveReport } from "@/lib/report/service";
+import { getIpcStats, getSlowResources, getStartupSpans } from "@/lib/startup-timing";
 import {
 	checkForUpdate,
 	downloadUpdate,
@@ -175,7 +176,85 @@ export function AboutDialog() {
 						</div>
 					)}
 				</div>
+
+				{/* 调试用：启动各阶段耗时（最近一次），排查"打开很慢"时看这里 */}
+				<StartupTimingSection />
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function StartupTimingSection() {
+	const spans = getStartupSpans();
+	const ipc = getIpcStats();
+	const resources = getSlowResources();
+	if (spans.length === 0) {
+		return null;
+	}
+	const total = ipc.reduce((sum, item) => sum + item.count, 0);
+	return (
+		<details className="text-xs">
+			<summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+				启动耗时（最近一次）
+			</summary>
+			<div className="mt-1 max-h-44 overflow-auto rounded-md border border-border/70 bg-background">
+				<table className="w-full text-left text-xs tabular-nums">
+					<thead className="sticky top-0 bg-muted/80 text-muted-foreground">
+						<tr>
+							<th className="px-1.5 py-1 font-normal">阶段</th>
+							<th className="px-1.5 py-1 text-right font-normal">开始</th>
+							<th className="px-1.5 py-1 text-right font-normal">耗时</th>
+						</tr>
+					</thead>
+					<tbody>
+						{spans.map((span, index) => (
+							<tr key={`${span.name}-${index}`} className="border-t border-border/50">
+								<td className="px-1.5 py-0.5" title={span.detail ?? ""}>
+									{span.name}
+								</td>
+								<td className="px-1.5 py-0.5 text-right text-muted-foreground">
+									{span.start.toFixed(0)}ms
+								</td>
+								<td className="px-1.5 py-0.5 text-right">
+									{span.duration > 0 ? `${span.duration.toFixed(0)}ms` : "—"}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+			<p className="mt-1 text-xs text-muted-foreground">
+				IPC {total} 次
+				{ipc[0] ? `，最多的是 ${ipc[0].command}（${ipc[0].count} 次 / ${ipc[0].total.toFixed(0)}ms）` : ""}
+			</p>
+			{resources.length > 0 && (
+				<div className="mt-1 max-h-28 overflow-auto rounded-md border border-border/70 bg-background">
+					<table className="w-full text-left text-xs tabular-nums">
+						<thead className="sticky top-0 bg-muted/80 text-muted-foreground">
+							<tr>
+								<th className="px-1.5 py-1 font-normal">资源</th>
+								<th className="px-1.5 py-1 text-right font-normal">耗时</th>
+								<th className="px-1.5 py-1 text-right font-normal">大小</th>
+							</tr>
+						</thead>
+						<tbody>
+							{resources.map((resource) => (
+								<tr key={resource.name} className="border-t border-border/50">
+									<td className="max-w-40 truncate px-1.5 py-0.5" title={resource.name}>
+										{resource.name}
+									</td>
+									<td className="px-1.5 py-0.5 text-right text-muted-foreground">
+										{resource.duration.toFixed(0)}ms
+									</td>
+									<td className="px-1.5 py-0.5 text-right text-muted-foreground">
+										{resource.size > 0 ? `${Math.round(resource.size / 1024)}KB` : "—"}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+		</details>
 	);
 }

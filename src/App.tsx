@@ -14,8 +14,10 @@ import {
 	useUiPreferences,
 } from "@/hooks";
 import { Container } from "@/layout";
+import { markStartup } from "@/lib/startup-timing";
 
 function App() {
+  markStartup("app-render");
   // 全局快捷键：撤销/重做、保存
   useHistoryShortcuts();
   useSaveShortcut();

@@ -10,6 +10,8 @@ import {
 	restoreLastReport,
 } from "@/lib/report/service";
 import { releaseAllOnUnload } from "@/lib/report/service/session";
+import { runWhenIdle } from "@/lib/utils";
+import { startSpan } from "@/lib/startup-timing";
 import { saveStateStore } from "@/store";
 
 /** 启动时发现的未保存内容：交给界面弹「全部恢复 / 全部丢弃 / 稍后」 */
@@ -71,13 +73,19 @@ export function useRestoreReport(): RestoreReportResult {
 		} else if (new URLSearchParams(search).get("new") !== "1") {
 			void (async () => {
 				await restoreLastReport();
-				// 必须等恢复完成再扫：提示框弹在"当前文档已就位"之后，
-				// 否则用户点「恢复」的瞬间可能被随后才完成的恢复流程覆盖掉
-				try {
-					setDrafts(orphanDrafts(await listDraftsInAllDirs()));
-				} catch {
-					setDrafts([]);
-				}
+				// 草稿列表不阻塞首屏：等浏览器空闲再扫。
+				// 有孤儿草稿也只是晚一点弹提示，不影响正在恢复的报告
+				runWhenIdle(() => {
+					const span = startSpan("draft-scan-idle");
+					void (async () => {
+						try {
+							setDrafts(orphanDrafts(await listDraftsInAllDirs()));
+						} catch {
+							setDrafts([]);
+						}
+						span.end();
+					})();
+				});
 			})();
 		}
 

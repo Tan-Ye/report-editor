@@ -6,6 +6,7 @@ import { setActiveCanvas } from "@/lib/canvas-registry";
 import { getReportPalette } from "@/lib/theme-tokens";
 import { computeViewportFit } from "@/lib/utils";
 import { toolStore, viewportStore, zoomStore } from "@/store";
+import { markStartup } from "@/lib/startup-timing";
 
 /** 画布句柄：画布与白页都在挂载之后才有值 */
 export interface CanvasHandle {
@@ -62,6 +63,7 @@ export function useCanvas(): CanvasHandle {
 			// （挂在画布外层）就收不到事件了。放开冒泡，由菜单组件去 preventDefault。
 			stopContextMenu: false,
 		});
+		markStartup("fabric-canvas-created");
 
 		const wrapper = fabricCanvas.wrapperEl;
 		Object.assign(wrapper.style, {
